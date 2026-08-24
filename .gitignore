@@ -1,0 +1,15 @@
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+.DS_Store
+
+# Built .app bundles, at the repo root ONLY.
+/*.app/
+
+# Local ASR model weights. Large, redistributed under their own license, and every
+# platform fetches them itself.
+models/
+*.onnx
+*.nemo

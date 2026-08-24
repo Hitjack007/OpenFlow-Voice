@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>OpenFlow Voice</string>
+	<key>CFBundleDisplayName</key>
+	<string>OpenFlow Voice</string>
+	<!-- Deliberately space-free and distinct from any other dictation app, so that
+	     `pkill`/`killall` on this app can never match a differently-named binary. -->
+	<key>CFBundleExecutable</key>
+	<string>OpenFlowVoice</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.Hitjack007.OpenFlow-Voice</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<!-- Lets the dashboard's Clear button call back into the app. A file:// page can't
+	     write files or talk to a process, but it can follow a custom-scheme link. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.Hitjack007.OpenFlow-Voice</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>openflowvoice</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<!-- A regular app: dock icon, app menu, standard windows. The menu bar item remains
+	     for status and the hotkey while you're working elsewhere, but it is secondary. -->
+	<key>LSUIElement</key>
+	<false/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>OpenFlow Voice listens while you hold the push-to-talk key so it can turn your speech into text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>OpenFlow Voice transcribes your speech on-device to insert text where you're typing.</string>
+</dict>
+</plist>
