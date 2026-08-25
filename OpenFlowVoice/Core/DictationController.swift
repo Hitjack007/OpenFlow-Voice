@@ -44,7 +44,6 @@ final class DictationController {
     /// Smoothed 0…1 mic level for the waveform.
     private(set) var level: Float = 0
 
-    private let hotkey = HotkeyMonitor()
     private let capture = AudioCapture()
     private let makeEngine: @Sendable () -> any TranscriptionEngine
 
@@ -84,25 +83,25 @@ final class DictationController {
 
     // MARK: - Lifecycle
 
-    /// - Returns: `false` if the hotkey tap couldn't be installed (missing Accessibility).
-    @discardableResult
-    func activate() -> Bool {
-        hotkey.key = Settings.shared.pushToTalkKey
-        hotkey.onPress = { [weak self] in self?.beginDictation() }
-        hotkey.onRelease = { [weak self] in self?.endDictation() }
-        return hotkey.start()
+    /// Wires the hotkey callbacks and installs the event tap in this process.
+    func activate() {
+        let monitor = HotkeyMonitor.shared
+        monitor.onPress = { [weak self] in self?.beginDictation() }
+        monitor.onRelease = { [weak self] in self?.endDictation() }
+        let ok = monitor.start(key: Settings.shared.pushToTalkKey)
+        if !ok {
+            Log.hotkey.error("couldn't install event tap — Accessibility permission missing?")
+        }
     }
 
     func deactivate() {
-        hotkey.stop()
+        HotkeyMonitor.shared.stop()
         cancelDictation()
     }
 
     /// Re-arms the tap after the user picks a different push-to-talk key.
-    @discardableResult
-    func reloadHotkey() -> Bool {
-        hotkey.stop()
-        return activate()
+    func reloadHotkey() {
+        activate()
     }
 
     // MARK: - Button-driven recording
@@ -264,7 +263,7 @@ final class DictationController {
             }
 
             recordRun(text: output, corrections: corrections)
-            TextInjector.insert(output)
+            await TextInjector.insert(output)
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
             state = .idle

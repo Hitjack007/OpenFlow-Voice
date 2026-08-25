@@ -7,9 +7,11 @@ struct OpenFlowVoiceApp: App {
 
     var body: some Scene {
         // The main window. A `Window` rather than a `WindowGroup`: this app has one front
-        // panel, and letting ⌘N spawn a second copy of a tape deck makes no sense.
+        // panel, and letting ⌘N spawn a second copy makes no sense.
         Window("OpenFlow Voice", id: "main") {
             MainWindow(controller: delegate.controller)
+                .onAppear { delegate.windowBecameVisible() }
+                .onDisappear { delegate.windowBecameHidden() }
         }
         .defaultSize(width: 860, height: 620)
         .windowResizability(.contentMinSize)
@@ -26,6 +28,8 @@ struct OpenFlowVoiceApp: App {
         // SwiftUI's settings scene.
         SwiftUI.Settings {
             SettingsWindow(controller: delegate.controller)
+                .onAppear { delegate.windowBecameVisible() }
+                .onDisappear { delegate.windowBecameHidden() }
         }
 
         // Secondary now: status and the hotkey while you're working in another app.
@@ -37,6 +41,8 @@ struct OpenFlowVoiceApp: App {
 
         Window("Engine comparison", id: "comparison") {
             ComparisonWindow(controller: delegate.controller)
+                .onAppear { delegate.windowBecameVisible() }
+                .onDisappear { delegate.windowBecameHidden() }
         }
         .defaultSize(width: 640, height: 560)
         .windowResizability(.contentMinSize)
@@ -48,21 +54,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DictationController()
     private var hud: HUDPanel?
     private var stateObservation: NSObjectProtocol?
+    private var visibleWindowCount = 0
+
+    // MARK: - Activation policy
+
+    /// Called from each window's .onAppear. Switches to .regular so the window can receive
+    /// focus, then activates the app on first show (avoids stealing focus on subsequent opens).
+    func windowBecameVisible() {
+        let wasHidden = visibleWindowCount == 0
+        visibleWindowCount += 1
+        NSApp.setActivationPolicy(.regular)
+        if wasHidden { NSApp.activate(ignoringOtherApps: true) }
+    }
+
+    /// Called from each window's .onDisappear. Reverts to .accessory (no dock icon) once
+    /// the last user-facing window closes.
+    func windowBecameHidden() {
+        visibleWindowCount = max(0, visibleWindowCount - 1)
+        if visibleWindowCount == 0 {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    /// Closing the last window keeps the app running in the menu bar — the hotkey stays
+    /// armed, and the menu bar icon is always available to reopen the window.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A regular app now: dock icon, app menu, standard windows. The HUD is still a
-        // non-activating panel, so dictating into another app never steals its focus — that
-        // property belongs to the panel, not to the activation policy.
-        NSApp.setActivationPolicy(.regular)
+        // Start as an accessory (no dock icon). Windows flip to .regular via windowBecameVisible().
+        NSApp.setActivationPolicy(.accessory)
 
         hud = HUDPanel(controller: controller)
 
-        if !controller.activate() {
-            Permissions.promptForAccessibility()
-            // The tap can only be created once the user grants Accessibility, and there's
-            // no notification for that — poll until it takes.
-            retryActivation()
-        }
+        // Wire hotkey callbacks and attempt the first tap install synchronously.
+        controller.activate()
+
+        // Prompt for Accessibility if not yet granted, then loop until the tap confirms.
+        // retryActivation() covers the case where the user just granted access and
+        // the first attempt in activate() failed.
+        Permissions.promptAccessibilityIfNeeded()
+        retryActivation()
 
         // Write the dashboard up front so the menu item always opens something, even
         // before the first dictation.
@@ -141,13 +174,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Retries the event tap installation every second until it succeeds.
+    /// Loops until Accessibility is granted and `CGEvent.tapCreate` returns non-nil.
     private func retryActivation() {
         Task { @MainActor in
-            while !Permissions.hasAccessibility {
+            while true {
+                let ok = HotkeyMonitor.shared.start(key: Settings.shared.pushToTalkKey)
+                if ok {
+                    Log.app.info("Accessibility granted — hotkey armed")
+                    break
+                }
                 try? await Task.sleep(for: .seconds(1))
             }
-            controller.activate()
-            Log.app.info("Accessibility granted — hotkey armed")
         }
     }
 }
@@ -184,7 +222,7 @@ private struct MenuContent: View {
 
         Divider()
 
-        Picker("Push-to-talk key", selection: Binding(
+        Picker("Shortcut", selection: Binding(
             get: { settings.pushToTalkKey },
             set: { key in
                 settings.pushToTalkKey = key

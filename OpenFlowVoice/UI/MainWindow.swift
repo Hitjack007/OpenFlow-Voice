@@ -1,134 +1,107 @@
 import AppKit
 import SwiftUI
 
-/// The app's main window — the front panel of the unit.
-///
-/// Laid out the way a deck is: transport and meter across the top on the panel itself, then
-/// a recessed well below holding whichever section is selected. The section selector is a
-/// row of keys, not a segmented control, because everything else here is a physical control
-/// and one piece of stock UI would give the whole thing away.
 struct MainWindow: View {
     @Bindable var controller: DictationController
-
     @State private var section: Section = .transcriptions
 
     enum Section: String, CaseIterable, Identifiable {
-        case transcriptions
-        case dictionary
-
+        case transcriptions, dictionary
         var id: String { rawValue }
         var title: String { self == .transcriptions ? "Transcriptions" : "Dictionary" }
     }
 
     var body: some View {
-        ZStack {
-            DS.Color.chassis.ignoresSafeArea()
+        VStack(spacing: 0) {
+            RecordControl(controller: controller)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
 
-            VStack(spacing: DS.Space.base) {
-                TransportPanel(controller: controller)
-
-                sectionKeys
-
-                Well {
-                    Group {
-                        switch section {
-                        case .transcriptions: TranscriptionList()
-                        case .dictionary: DictionaryPanel()
-                        }
-                    }
-                    .padding(DS.Space.hair)
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .padding(DS.Space.roomy)
-        }
-        .frame(minWidth: 720, minHeight: 520)
-    }
-
-    private var sectionKeys: some View {
-        HStack(spacing: DS.Space.snug) {
-            ForEach(Section.allCases) { candidate in
-                TransportKey(
-                    title: candidate.title,
-                    isEngaged: section == candidate,
-                    engagedColor: DS.Color.ink
-                ) {
-                    withAnimation(DS.Motion.panel) { section = candidate }
-                }
-                .background {
-                    if section == candidate {
-                        RoundedRectangle(cornerRadius: DS.Radius.control)
-                            .fill(DS.Color.selection)
-                    }
+            Picker("", selection: $section) {
+                ForEach(Section.allCases) { s in
+                    Text(s.title).tag(s)
                 }
             }
-            Spacer()
-            Vents(count: 8)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            Group {
+                switch section {
+                case .transcriptions: TranscriptionList()
+                case .dictionary: DictionaryPanel()
+                }
+            }
+            .frame(maxHeight: .infinity)
         }
+        .frame(minWidth: 620, minHeight: 480)
     }
 }
 
-// MARK: - Transport
+// MARK: - Record Control
 
-/// Record / stop, the level meter, and the counter — the top of the unit.
-private struct TransportPanel: View {
+private struct RecordControl: View {
     @Bindable var controller: DictationController
-
     @State private var elapsed: TimeInterval = 0
     @State private var startedAt: Date?
+    @State private var settings = Settings.shared
+    @Environment(\.openSettings) private var openSettings
 
     private var isRecording: Bool { controller.state.isActive }
 
     var body: some View {
-        HStack(spacing: DS.Space.roomy) {
-            VStack(alignment: .leading, spacing: DS.Space.snug) {
-                Silkscreen(text: "Transport")
-                HStack(spacing: DS.Space.snug) {
-                    TransportKey(
-                        title: isRecording ? "Stop" : "Record",
-                        systemImage: isRecording ? "stop.fill" : "circle.fill",
-                        isEngaged: isRecording
-                    ) {
-                        if isRecording {
-                            controller.stopButtonRecording()
-                        } else {
-                            controller.startButtonRecording()
-                        }
-                    }
-
-                    HStack(spacing: DS.Space.tight) {
-                        Lamp(color: DS.Color.record, isLit: isRecording)
-                        Silkscreen(text: "Rec")
-                    }
-                    .padding(.leading, DS.Space.tight)
+        HStack(spacing: 20) {
+            Button {
+                if isRecording {
+                    controller.stopButtonRecording()
+                } else {
+                    controller.startButtonRecording()
                 }
-            }
-
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Level")
-                VUMeter(level: controller.level, isActive: isRecording)
-                    .frame(width: 168, height: 54)
-            }
-
-            VStack(alignment: .leading, spacing: DS.Space.tight) {
-                Silkscreen(text: "Counter")
-                DeckWindow {
-                    Readout(text: counterText, large: true)
-                        .padding(.horizontal, DS.Space.base)
-                        .padding(.vertical, DS.Space.snug)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(isRecording ? Color.red : Color.accentColor)
+                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
+                .frame(width: 52, height: 52)
+            }
+            .buttonStyle(.plain)
+            .animation(.easeInOut(duration: 0.15), value: isRecording)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(statusText)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(counterText)
+                    .font(.system(.subheadline, design: .monospaced).monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: DS.Space.snug) {
-                Screw()
-                Screw()
+            LevelBars(level: controller.level, isActive: isRecording)
+
+            Button {
+                openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16))
+                    .padding(8)
+                    .glassEffect(in: .circle)
             }
+            .buttonStyle(.plain)
+            .help("Settings")
         }
-        .padding(DS.Space.roomy)
-        .background(BrushedPanel())
-        .onChange(of: controller.state.isActive) { _, active in
+        .padding(16)
+        .glassEffect(in: .rect(cornerRadius: 18))
+        .onChange(of: isRecording) { _, active in
             startedAt = active ? Date() : nil
             if !active { elapsed = 0 }
         }
@@ -141,16 +114,56 @@ private struct TransportPanel: View {
         }
     }
 
-    /// Minutes and seconds, zero-padded, the way a tape counter reads.
+    private var statusText: String {
+        switch controller.state {
+        case .idle: "Hold \(settings.pushToTalkKey.displayName) or tap to record"
+        case .starting: "Starting…"
+        case .listening: "Recording"
+        case .finishing: "Processing…"
+        case .error(let msg): msg
+        }
+    }
+
     private var counterText: String {
+        guard isRecording else { return "—" }
         let total = Int(elapsed)
-        return String(format: "%02d:%02d", total / 60, total % 60)
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// MARK: - Level Bars
+
+private struct LevelBars: View {
+    let level: Float
+    var isActive: Bool
+    private let count = 20
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(0..<count, id: \.self) { i in
+                let normalized = Float(i + 1) / Float(count)
+                let isLit = isActive && normalized <= level
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(isLit ? barColor(normalized) : Color.secondary.opacity(0.12))
+                    .frame(width: 3, height: barHeight(i))
+            }
+        }
+        .animation(.linear(duration: 0.04), value: level)
+    }
+
+    private func barHeight(_ index: Int) -> CGFloat {
+        let center = Float(count - 1) / 2.0
+        let dist = abs(Float(index) - center) / center
+        return 6 + CGFloat(1.0 - dist) * 24
+    }
+
+    private func barColor(_ normalized: Float) -> Color {
+        normalized > 0.85 ? .red : normalized > 0.65 ? .yellow : .green
     }
 }
 
 // MARK: - Transcriptions
 
-/// Past transcriptions, searchable, each copyable.
 private struct TranscriptionList: View {
     @State private var store = RunStore.shared
     @State private var query = ""
@@ -169,20 +182,24 @@ private struct TranscriptionList: View {
 
             if runs.isEmpty {
                 EmptyPanel(
-                    label: store.runs.isEmpty ? "No recordings" : "No matches",
-                    detail: store.runs.isEmpty ? "Press Record to start." : "Try a different search."
+                    label: store.runs.isEmpty ? "No recordings yet" : "No matches",
+                    detail: store.runs.isEmpty
+                        ? "Hold your push-to-talk key or tap the mic button."
+                        : "Try a different search."
                 )
             } else {
-                ScrollView {
-                    LazyVStack(spacing: DS.Space.snug) {
-                        ForEach(runs) { run in
-                            TranscriptionRow(run: run) {
-                                withAnimation(DS.Motion.panel) { RunLog.delete(run) }
-                            }
+                List {
+                    ForEach(runs) { run in
+                        TranscriptionRow(run: run) {
+                            withAnimation { RunLog.delete(run) }
                         }
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                     }
-                    .padding(DS.Space.base)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+
                 footer
             }
         }
@@ -190,24 +207,18 @@ private struct TranscriptionList: View {
 
     private var footer: some View {
         HStack {
-            Silkscreen(
-                text: "\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")",
-                color: DS.Color.inkOnDeck.opacity(0.5)
-            )
+            Text("\(store.runs.count) recording\(store.runs.count == 1 ? "" : "s")")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             Spacer()
-            Button { isConfirmingClear = true } label: {
-                Silkscreen(text: "Delete all", color: DS.Color.inkOnDeck.opacity(0.5))
-            }
-            .buttonStyle(.plain)
+            Button("Delete All") { isConfirmingClear = true }
+                .font(.footnote)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
-        .overlay(alignment: .top) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-        }
-        // Confirmed, unlike a single row: one row is trivially re-recorded, the whole
-        // history is not, and there's no undo.
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
         .confirmationDialog(
             "Delete all \(store.runs.count) recordings?",
             isPresented: $isConfirmingClear,
@@ -229,36 +240,33 @@ private struct TranscriptionRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.snug) {
-            HStack(spacing: DS.Space.snug) {
-                Silkscreen(text: run.engine, color: DS.Color.inkOnDeck.opacity(0.7))
-                Readout(text: String(format: "%.2fs", run.processSeconds))
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.6))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(run.engine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(String(format: "%.2fs", run.processSeconds))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Text(run.date, style: .time)
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 copyButton
-                deleteButton
-                    .opacity(isHovering ? 1 : 0)
+                if isHovering { deleteButton }
             }
 
             Text(run.text)
-                .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
+                .font(.body)
                 .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let corrections = run.corrections, !corrections.isEmpty {
                 CorrectionBadges(corrections: corrections)
             }
         }
-        .padding(DS.Space.base)
-        .background {
-            DeckWindow { Color.clear }
-                .opacity(isHovering ? 0.85 : 1)
-        }
+        .padding(12)
+        .background(.background.secondary, in: .rect(cornerRadius: 10))
         .onHover { isHovering = $0 }
     }
 
@@ -272,70 +280,54 @@ private struct TranscriptionRow: View {
                 didCopy = false
             }
         } label: {
-            Silkscreen(
-                text: didCopy ? "Copied" : "Copy",
-                color: DS.Color.inkOnDeck.opacity(didCopy ? 1 : 0.6)
-            )
-            .padding(.horizontal, DS.Space.snug)
-            .padding(.vertical, DS.Space.tight)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-            )
+            Text(didCopy ? "Copied" : "Copy")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .glassEffect(in: .capsule)
         }
         .buttonStyle(.plain)
     }
 
-    /// Appears on hover only, and deletes without a confirmation — a single transcript is
-    /// cheap to redo, and a dialog on every row would make tidying up tedious. The
-    /// irreversible one is "Delete all", which does confirm.
     private var deleteButton: some View {
         Button(action: onDelete) {
             Image(systemName: "trash")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.55))
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.tight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.inkOnDeck.opacity(0.3), lineWidth: DS.Border.hairline)
-                )
+                .font(.caption)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .glassEffect(in: .capsule)
         }
         .buttonStyle(.plain)
         .help("Delete this transcription")
     }
 }
 
-/// Shows that the dictionary fired, and on what. Without this the dictionary is invisible
-/// and you can't tell a rule that works from one that never matches.
 private struct CorrectionBadges: View {
     let corrections: [AppliedCorrection]
 
     var body: some View {
-        HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "Corrected", color: DS.Color.meterAmber)
+        HStack(spacing: 6) {
+            Text("Corrected")
+                .font(.caption2)
+                .foregroundStyle(.orange)
             ForEach(corrections, id: \.self) { correction in
-                HStack(spacing: DS.Space.tight) {
+                HStack(spacing: 4) {
                     Text(correction.from)
                         .strikethrough()
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                        .foregroundStyle(.secondary)
                     Image(systemName: "arrow.right")
                         .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                        .foregroundStyle(.tertiary)
                     Text(correction.to)
-                        .foregroundStyle(DS.Color.inkOnDeck)
                     if correction.count > 1 {
                         Text("×\(correction.count)")
-                            .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .font(DS.Font.caption)
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.hair)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.meterAmber.opacity(0.35), lineWidth: DS.Border.hairline)
-                )
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.orange.opacity(0.1), in: .capsule)
             }
             Spacer()
         }
@@ -349,27 +341,25 @@ struct SearchField: View {
     let placeholder: String
 
     var body: some View {
-        HStack(spacing: DS.Space.snug) {
+        HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.5))
+                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.background.secondary)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
+            Divider()
         }
     }
 }
@@ -379,12 +369,16 @@ struct EmptyPanel: View {
     let detail: String
 
     var body: some View {
-        VStack(spacing: DS.Space.snug) {
-            Silkscreen(text: label, large: true, color: DS.Color.inkOnDeck.opacity(0.55))
+        VStack(spacing: 8) {
+            Text(label)
+                .font(.headline)
+                .foregroundStyle(.secondary)
             Text(detail)
-                .font(DS.Font.label)
-                .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }

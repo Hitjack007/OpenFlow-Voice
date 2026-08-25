@@ -1,11 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// The dictionary: add, edit, delete, search.
-///
-/// Both entry kinds live in one list rather than separate tabs — they're two shapes of the
-/// same idea and you want to see everything you've taught it at once. The kind is carried by
-/// a silkscreen tag on each row.
 struct DictionaryPanel: View {
     @State private var store = DictionaryStore.shared
     @State private var query = ""
@@ -16,15 +11,7 @@ struct DictionaryPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Search dictionary")
-                addButton
-                    .padding(.trailing, DS.Space.base)
-                    .background(DS.Color.deck)
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-            }
+            toolbar
 
             if entries.isEmpty {
                 EmptyPanel(
@@ -34,26 +21,27 @@ struct DictionaryPanel: View {
                         : "Try a different search."
                 )
             } else {
-                ScrollView {
-                    LazyVStack(spacing: DS.Space.tight) {
-                        ForEach(entries) { entry in
-                            DictionaryRow(
-                                entry: entry,
-                                onEdit: { editing = entry },
-                                onToggle: {
-                                    var updated = entry
-                                    updated.isEnabled.toggle()
-                                    store.update(updated)
-                                },
-                                onDelete: { store.delete(entry) }
-                            )
-                        }
+                List {
+                    ForEach(entries) { entry in
+                        DictionaryRow(
+                            entry: entry,
+                            onEdit: { editing = entry },
+                            onToggle: {
+                                var updated = entry
+                                updated.isEnabled.toggle()
+                                store.update(updated)
+                            },
+                            onDelete: { withAnimation { store.delete(entry) } }
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                     }
-                    .padding(DS.Space.base)
                 }
-            }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
 
-            footer
+                footer
+            }
         }
         .sheet(isPresented: $isAdding) {
             DictionaryEditor(entry: nil) { store.add($0) }
@@ -63,45 +51,63 @@ struct DictionaryPanel: View {
         }
     }
 
-    private var addButton: some View {
-        Button { isAdding = true } label: {
-            HStack(spacing: DS.Space.tight) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                Silkscreen(text: "Add", color: DS.Color.inkOnDeck)
+    private var toolbar: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13))
+                TextField("Search dictionary", text: $query)
+                    .textFieldStyle(.plain)
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .foregroundStyle(DS.Color.inkOnDeck)
-            .padding(.horizontal, DS.Space.base)
-            .padding(.vertical, DS.Space.snug)
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.chip)
-                    .strokeBorder(DS.Color.inkOnDeck.opacity(0.35), lineWidth: DS.Border.hairline)
-            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider().frame(height: 16)
+
+            Button {
+                isAdding = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: .command)
+            .help("New entry (⌘N)")
         }
-        .buttonStyle(.plain)
-        .keyboardShortcut("n", modifiers: .command)
+        .background(.background.secondary)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// The file path is shown because the spec asks for the dictionary to be editable outside
-    /// the UI — which is only true if you can find it.
     private var footer: some View {
-        HStack(spacing: DS.Space.snug) {
-            Silkscreen(text: "\(store.entries.count) entries", color: DS.Color.inkOnDeck.opacity(0.5))
+        HStack {
+            Text("\(store.entries.count) entr\(store.entries.count == 1 ? "y" : "ies")")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             Spacer()
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([DictionaryStore.fileURL])
             } label: {
-                Silkscreen(text: "Reveal dictionary.txt", color: DS.Color.inkOnDeck.opacity(0.5))
+                Text("Reveal dictionary.txt")
+                    .font(.footnote)
             }
             .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
             .help(DictionaryStore.fileURL.path)
         }
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(DS.Color.deck)
-        .overlay(alignment: .top) {
-            Rectangle().fill(DS.Color.seam).frame(height: DS.Border.seam)
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 }
 
@@ -116,54 +122,75 @@ private struct DictionaryRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: DS.Space.base) {
-            Lamp(color: DS.Color.meterGreen, isLit: entry.isEnabled, size: 6)
+        HStack(spacing: 10) {
+            Circle()
+                .fill(entry.isEnabled ? Color.green : Color.secondary.opacity(0.3))
+                .frame(width: 7, height: 7)
 
-            Silkscreen(
-                text: entry.kind == .correction ? "Fix" : "Term",
-                color: DS.Color.inkOnDeck.opacity(0.5)
-            )
-            .frame(width: 34, alignment: .leading)
+            kindBadge
 
             if entry.kind == .correction {
                 Text(entry.hear)
-                    .font(DS.Font.body)
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.6))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(DS.Color.inkOnDeck.opacity(0.4))
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
             }
 
             Text(entry.write)
-                .font(DS.Font.bodyEmphasis)
-                .foregroundStyle(DS.Color.inkOnDeck)
+                .font(entry.kind == .correction ? .body.weight(.semibold) : .body)
+                .foregroundStyle(.primary)
 
             Spacer()
 
             if isHovering {
-                rowButton("Edit", action: onEdit)
-                rowButton(entry.isEnabled ? "Off" : "On", action: onToggle)
-                rowButton("Delete", action: onDelete)
+                actionButton("pencil", help: "Edit") { onEdit() }
+                actionButton(entry.isEnabled ? "eye.slash" : "eye",
+                             help: entry.isEnabled ? "Disable" : "Enable") { onToggle() }
+                actionButton("trash", help: "Delete", isDestructive: true) { onDelete() }
             }
         }
         .opacity(entry.isEnabled ? 1 : 0.45)
-        .padding(.horizontal, DS.Space.base)
-        .padding(.vertical, DS.Space.snug)
-        .background(isHovering ? DS.Color.hover : DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+        .padding(12)
+        .background(.background.secondary, in: .rect(cornerRadius: 10))
         .onHover { isHovering = $0 }
     }
 
-    private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private var kindBadge: some View {
+        let isCorrection = entry.kind == .correction
+        return Text(isCorrection ? "Fix" : "Term")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(isCorrection ? Color.orange : Color.accentColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                (isCorrection ? Color.orange : Color.accentColor).opacity(0.12),
+                in: .capsule
+            )
+    }
+
+    private func actionButton(
+        _ icon: String,
+        help: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            Silkscreen(text: title, color: DS.Color.inkOnDeck.opacity(0.6))
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(isDestructive ? Color.red.opacity(0.75) : Color.primary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .glassEffect(in: .capsule)
         }
         .buttonStyle(.plain)
+        .help(help)
     }
 }
 
 // MARK: - Editor
 
-/// Add or edit one entry, with the false-positive warning shown live as you type.
 private struct DictionaryEditor: View {
     let entry: DictionaryEntry?
     let onSave: (DictionaryEntry) -> Void
@@ -198,87 +225,91 @@ private struct DictionaryEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Space.roomy) {
-            Silkscreen(text: entry == nil ? "New entry" : "Edit entry", large: true)
+        VStack(alignment: .leading, spacing: 22) {
+            Text(entry == nil ? "New Entry" : "Edit Entry")
+                .font(.title2.weight(.semibold))
 
-            kindPicker
+            Picker("Kind", selection: Binding(
+                get: { kind },
+                set: { newKind in withAnimation(.easeInOut(duration: 0.18)) { kind = newKind } }
+            )) {
+                Text("Term").tag(DictionaryEntry.Kind.term)
+                Text("Correction").tag(DictionaryEntry.Kind.correction)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
-            VStack(alignment: .leading, spacing: DS.Space.base) {
+            VStack(alignment: .leading, spacing: 14) {
                 if kind == .correction {
-                    field("When you hear", text: $hear, prompt: "cloud code")
+                    editorField("When the engine hears", text: $hear, prompt: "cloud code")
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .opacity
+                        ))
                 }
-                field(
-                    kind == .correction ? "Write" : "Word or phrase",
+                editorField(
+                    kind == .correction ? "Write instead" : "Word or phrase",
                     text: $write,
                     prompt: kind == .correction ? "Claude Code" : "Anthropic"
                 )
             }
 
-            ForEach(warnings) { warning in
-                HStack(alignment: .top, spacing: DS.Space.snug) {
-                    Lamp(color: DS.Color.meterAmber, isLit: true, size: 6)
-                        .padding(.top, 3)
-                    Text(warning.message)
-                        .font(DS.Font.label)
-                        .foregroundStyle(DS.Color.ink)
-                        .fixedSize(horizontal: false, vertical: true)
+            if !warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(warnings) { warning in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                                .padding(.top, 1)
+                            Text(warning.message)
+                                .font(.footnote)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
-                .padding(DS.Space.snug)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.08), in: .rect(cornerRadius: 10))
                 .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.meterAmber.opacity(0.4), lineWidth: DS.Border.hairline)
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.orange.opacity(0.3), lineWidth: 1)
                 )
             }
 
-            HStack(spacing: DS.Space.snug) {
+            HStack(spacing: 10) {
                 Spacer()
-                TransportKey(title: "Cancel") { dismiss() }
-                TransportKey(title: "Save", isEngaged: isValid, engagedColor: DS.Color.ink) {
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("Save") {
                     guard isValid else { return }
                     onSave(draft)
                     dismiss()
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(!isValid)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(DS.Space.panel)
-        .frame(width: 460)
-        .background(BrushedPanel(radius: DS.Radius.window))
+        .padding(24)
+        .frame(width: 440)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var kindPicker: some View {
-        HStack(spacing: DS.Space.snug) {
-            ForEach([DictionaryEntry.Kind.term, .correction], id: \.self) { candidate in
-                TransportKey(
-                    title: candidate == .term ? "Term" : "Correction",
-                    isEngaged: kind == candidate,
-                    engagedColor: DS.Color.ink
-                ) {
-                    withAnimation(DS.Motion.panel) { kind = candidate }
-                }
-                .background {
-                    if kind == candidate {
-                        RoundedRectangle(cornerRadius: DS.Radius.control).fill(DS.Color.selection)
-                    }
-                }
-            }
-        }
-    }
-
-    private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        VStack(alignment: .leading, spacing: DS.Space.tight) {
-            Silkscreen(text: label)
+    private func editorField(_ label: String, text: Binding<String>, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
             TextField(prompt, text: text)
                 .textFieldStyle(.plain)
-                .font(DS.Font.body)
-                .foregroundStyle(DS.Color.inkOnDeck)
-                .padding(.horizontal, DS.Space.snug)
-                .padding(.vertical, DS.Space.snug)
-                .background(DS.Color.deck, in: .rect(cornerRadius: DS.Radius.chip))
+                .font(.body)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(.background.secondary, in: .rect(cornerRadius: 8))
                 .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radius.chip)
-                        .strokeBorder(DS.Color.seam, lineWidth: DS.Border.hairline)
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
                 )
         }
     }
