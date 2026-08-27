@@ -21,6 +21,7 @@ struct HUDView: View {
         Group {
             if case .noTarget(let text) = controller.state {
                 NoTargetView(text: text, controller: controller)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             } else {
                 RecordingPill(controller: controller)
             }

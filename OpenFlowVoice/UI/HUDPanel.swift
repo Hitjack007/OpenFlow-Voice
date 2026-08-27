@@ -12,7 +12,7 @@ final class HUDPanel: NSPanel {
     private static let expandedSize = NSSize(width: 300, height: 100)
 
     /// Pixels between the bottom of the HUD and the top of the Dock/menu-bar area.
-    private static let dockGap: CGFloat = 8
+    private static let dockGap: CGFloat = 20
 
     init(controller: DictationController) {
         super.init(
