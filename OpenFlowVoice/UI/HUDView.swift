@@ -1,7 +1,6 @@
+import AppKit
 import SwiftUI
 
-/// Brand palette. Deliberately minimal for the skeleton — this is the surface the real
-/// branding pass will replace.
 enum Brand {
     static let accent = Color(red: 0.42, green: 0.55, blue: 1.0)
     static let accentWarm = Color(red: 0.76, green: 0.47, blue: 1.0)
@@ -19,59 +18,90 @@ struct HUDView: View {
     @Bindable var controller: DictationController
 
     var body: some View {
-        HStack(spacing: 14) {
-            Waveform(level: controller.level, isActive: controller.state == .listening)
-                .frame(width: 76, height: 26)
+        Group {
+            if case .noTarget(let text) = controller.state {
+                NoTargetView(text: text, controller: controller)
+            } else {
+                RecordingPill(controller: controller)
+            }
+        }
+        .background(Color.clear)
+    }
+}
 
-            Text(label)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(isError ? Color.red.opacity(0.9) : .primary.opacity(0.85))
+private struct RecordingPill: View {
+    @Bindable var controller: DictationController
+
+    var body: some View {
+        Waveform(level: controller.level, isActive: controller.state == .listening)
+            .frame(width: 64, height: 16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .background {
+                Capsule()
+                    .fill(Color(white: 0.06))
+            }
+    }
+}
+
+private struct NoTargetView: View {
+    let text: String
+    let controller: DictationController
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(text)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(2)
-                .truncationMode(.head)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .animation(.easeOut(duration: 0.12), value: controller.transcript)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(width: 340, height: 76)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+
+            HStack(alignment: .center) {
+                Text("Select a text field first")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.4))
+
+                Spacer()
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    withAnimation(.easeOut(duration: 0.15)) { copied = true }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.2))
+                        controller.dismissNoTarget()
+                    }
+                } label: {
+                    Text(copied ? "Copied" : "Copy")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(copied ? Color(red: 0.3, green: 0.9, blue: 0.5) : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.12), in: Capsule())
                 }
-                .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+                .buttonStyle(.plain)
+                .animation(.easeOut(duration: 0.15), value: copied)
+            }
         }
-    }
-
-    private var isError: Bool {
-        if case .error = controller.state { return true }
-        return false
-    }
-
-    private var label: String {
-        switch controller.state {
-        case .starting: "Listening…"
-        case .listening: controller.transcript.isEmpty ? "Listening…" : controller.transcript
-        // Parakeet transcribes in one pass on release, so there's nothing to show until
-        // it lands — say what's happening instead of leaving an empty pill.
-        case .finishing: controller.transcript.isEmpty ? "Transcribing…" : controller.transcript
-        case .error(let message): message
-        case .idle: ""
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: 300)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.06))
         }
     }
 }
 
-/// Level-reactive bars. Each bar gets a fixed phase offset so the group ripples rather
-/// than pumping in unison.
+/// Level-reactive bars — fixed phase offsets keep bars from pumping in unison.
 private struct Waveform: View {
     let level: Float
     let isActive: Bool
 
-    private static let barCount = 12
+    private static let barCount = 10
     private static let phases: [Double] = (0..<barCount).map { index in
-        // Irrational multiplier keeps the offsets from lining up into a visible period.
         (Double(index) * 0.618).truncatingRemainder(dividingBy: 1)
     }
 
@@ -81,7 +111,7 @@ private struct Waveform: View {
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<Self.barCount, id: \.self) { index in
                     Capsule()
-                        .fill(Brand.gradient)
+                        .fill(Color.white)
                         .frame(width: 3, height: height(for: index, at: t))
                 }
             }
@@ -96,8 +126,7 @@ private struct Waveform: View {
         let phase = Self.phases[index]
         let wave = sin(time * 6.0 + phase * .pi * 2)
         let amplitude = CGFloat(max(0.04, level))
-        // Wave rides on top of the level so bars still breathe during quiet passages.
         let scaled = amplitude * (0.55 + 0.45 * CGFloat(wave))
-        return floorHeight + max(0, scaled) * 23
+        return floorHeight + max(0, scaled) * 11
     }
 }

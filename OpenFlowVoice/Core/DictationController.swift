@@ -28,11 +28,20 @@ final class DictationController {
         case starting
         case listening
         case finishing
+        /// Dictation succeeded but no text field had focus — the HUD shows a copy fallback.
+        case noTarget(String)
         case error(String)
 
         var isActive: Bool {
             switch self {
             case .starting, .listening, .finishing: true
+            case .idle, .noTarget, .error: false
+            }
+        }
+
+        var showsHUD: Bool {
+            switch self {
+            case .starting, .listening, .finishing, .noTarget: true
             case .idle, .error: false
             }
         }
@@ -141,6 +150,14 @@ final class DictationController {
                     fail("Microphone access is off. Enable it in System Settings ▸ Privacy & Security ▸ Microphone.")
                     return
                 }
+
+                // Yield the actor once so any concurrent endDictation() that was queued
+                // during a brief key tap can flip state before we commit to engine startup.
+                // Without this, teardown() would call engine.finish() on an analyzer that
+                // has never received audio, causing finalizeAndFinishThroughEndOfInput() to
+                // hang indefinitely.
+                await Task.yield()
+                guard case .starting = self.state else { return }
 
                 let engine = makeEngine()
                 self.engine = engine
@@ -263,12 +280,26 @@ final class DictationController {
             }
 
             recordRun(text: output, corrections: corrections)
-            await TextInjector.insert(output)
+            let inserted = await TextInjector.insert(output)
             if Settings.shared.soundEnabled { NSSound(named: "Pop")?.play() }
 
-            state = .idle
-            transcript = ""
+            if inserted {
+                state = .idle
+                transcript = ""
+            } else {
+                state = .noTarget(output)
+                transcript = ""
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(8))
+                    if case .noTarget = state { state = .idle }
+                }
+            }
         }
+    }
+
+    func dismissNoTarget() {
+        guard case .noTarget = state else { return }
+        state = .idle
     }
 
     private func cancelDictation() {

@@ -13,19 +13,34 @@ import Foundation
 /// The HUD is a non-activating panel, so focus never leaves the user's target app.
 @MainActor
 enum TextInjector {
-    static func insert(_ text: String) async {
-        guard !text.isEmpty else { return }
+    /// Inserts text into the focused element. Returns `false` when there is no text-input
+    /// element focused — the caller should show a clipboard fallback in that case.
+    @discardableResult
+    static func insert(_ text: String) async -> Bool {
+        guard !text.isEmpty else { return true }
 
         let (ok, reason) = insertViaAX(text)
         if ok {
             Log.inject.info("inserted via AX (\(text.count) chars)")
-        } else {
-            Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting")
-            insertViaPasteboard(text)
+            return true
         }
+        // "no text input" covers both "no focused element" and "not a text field role".
+        // These cases mean there is genuinely nowhere to inject text.
+        if reason == "no focused element" || reason == "not a text input" {
+            Log.inject.info("AX no target (\(reason, privacy: .public)) — showing fallback")
+            return false
+        }
+        Log.inject.info("AX insert not verified (\(reason, privacy: .public)) — pasting")
+        insertViaPasteboard(text)
+        return true
     }
 
     // MARK: - Accessibility
+
+    // Roles that reliably accept pasted text via ⌘V when AX direct-set fails.
+    private static let pasteableRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"
+    ]
 
     private static func insertViaAX(_ text: String) -> (Bool, String) {
         let systemWide = AXUIElementCreateSystemWide()
@@ -43,6 +58,15 @@ enum TextInjector {
         guard AXUIElementIsAttributeSettable(
             element, kAXSelectedTextAttribute as CFString, &settable
         ) == .success, settable.boolValue else {
+            // Not settable via AX. Check whether the element is at least a text-input
+            // role that might accept ⌘V — if not, there's nowhere to inject text.
+            var roleRef: CFTypeRef?
+            let role = AXUIElementCopyAttributeValue(
+                element, kAXRoleAttribute as CFString, &roleRef
+            ) == .success ? (roleRef as? String ?? "") : ""
+            guard pasteableRoles.contains(role) else {
+                return (false, "not a text input")
+            }
             return (false, "selected text not settable")
         }
 

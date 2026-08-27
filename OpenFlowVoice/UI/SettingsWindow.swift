@@ -2,11 +2,169 @@ import AppKit
 import SwiftUI
 
 struct SettingsWindow: View {
-    @Bindable var controller: DictationController
+    let controller: DictationController
+    @State private var selection: SettingsSection? = .general
+
+    var body: some View {
+        NavigationSplitView {
+            List(selection: $selection) {
+                Section("Dictation") {
+                    Label(SettingsSection.general.title, systemImage: SettingsSection.general.icon)
+                        .tag(SettingsSection.general)
+                    Label(SettingsSection.audio.title, systemImage: SettingsSection.audio.icon)
+                        .tag(SettingsSection.audio)
+                }
+                Section("Processing") {
+                    Label(SettingsSection.model.title, systemImage: SettingsSection.model.icon)
+                        .tag(SettingsSection.model)
+                    Label(SettingsSection.cleanup.title, systemImage: SettingsSection.cleanup.icon)
+                        .tag(SettingsSection.cleanup)
+                }
+                Section("Privacy") {
+                    Label(SettingsSection.permissions.title, systemImage: SettingsSection.permissions.icon)
+                        .tag(SettingsSection.permissions)
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .toolbar(removing: .sidebarToggle)
+            .navigationTitle("Settings")
+        } detail: {
+            detailView
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(width: 700, height: 500)
+        .background(SettingsWindowChrome())
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection ?? .general {
+        case .general:     GeneralSectionView(controller: controller)
+        case .model:       ModelSectionView()
+        case .cleanup:     CleanupSectionView()
+        case .audio:       AudioSectionView()
+        case .permissions: PermissionsSectionView()
+        }
+    }
+}
+
+// MARK: - Window Chrome
+
+// SwiftUI's Settings scene ignores .windowStyle(.hiddenTitleBar), so we patch the
+// NSWindow directly once the view is inserted into it.
+private struct SettingsWindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> SettingsWindowAccessorView { .init() }
+    func updateNSView(_ nsView: SettingsWindowAccessorView, context: Context) {}
+}
+
+private class SettingsWindowAccessorView: NSView {
+    private var observations: [NSObjectProtocol] = []
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observations.forEach { NotificationCenter.default.removeObserver($0) }
+        observations = []
+        guard let window else { return }
+
+        window.styleMask.insert(.fullSizeContentView)
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
+        if window.toolbar == nil {
+            window.toolbar = NSToolbar(identifier: "OpenFlowVoiceSettings")
+        }
+
+        // Set .regular immediately so the dock icon appears before onAppear fires.
+        NSApp.setActivationPolicy(.regular)
+
+        observations = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+            ) { _ in NSApp.setActivationPolicy(.regular) }
+        ]
+    }
+}
+
+// MARK: - Section Definition
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general, model, cleanup, audio, permissions
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general:     "General"
+        case .model:       "Model"
+        case .cleanup:     "Cleanup"
+        case .audio:       "Audio"
+        case .permissions: "Permissions"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general:     "keyboard"
+        case .model:       "brain"
+        case .cleanup:     "wand.and.sparkles"
+        case .audio:       "speaker.wave.2.fill"
+        case .permissions: "lock.shield.fill"
+        }
+    }
+}
+
+// MARK: - Shared UI Helpers
+
+@ViewBuilder
+private func customBadge(text: String) -> some View {
+    Text(text)
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(.secondary.opacity(0.15), in: Capsule())
+}
+
+// MARK: - General
+
+private struct GeneralSectionView: View {
+    let controller: DictationController
     @State private var settings = Settings.shared
+    @State private var elapsed: TimeInterval = 0
+    @State private var startedAt: Date?
+
+    private var isRecording: Bool { controller.state.isActive }
 
     var body: some View {
         Form {
+            Section("Dictation") {
+                HStack(spacing: 12) {
+                    Button {
+                        if isRecording { controller.stopButtonRecording() }
+                        else { controller.startButtonRecording() }
+                    } label: {
+                        ZStack {
+                            Circle().fill(isRecording ? Color.red : Color.accentColor)
+                            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .frame(width: 38, height: 38)
+                    }
+                    .buttonStyle(.plain)
+                    .animation(.easeInOut(duration: 0.15), value: isRecording)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(statusText)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text(isRecording ? String(format: "%d:%02d", Int(elapsed) / 60, Int(elapsed) % 60) : "—")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section {
                 LabeledContent("Shortcut") {
                     ShortcutRecorder(key: Binding(
@@ -17,13 +175,51 @@ struct SettingsWindow: View {
                         }
                     ))
                 }
-                Text("Hold this key anywhere to dictate. The window's Record button works regardless of what's focused.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             } header: {
                 Text("Push to Talk")
+            } footer: {
+                Text("Hold this key anywhere to dictate.")
             }
 
+            Section("App") {
+                Button("Quit OpenFlow Voice", role: .destructive) { NSApp.terminate(nil) }
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: isRecording) { _, active in
+            startedAt = active ? Date() : nil
+            if !active { elapsed = 0 }
+        }
+        .task(id: startedAt) {
+            guard let startedAt else { return }
+            while !Task.isCancelled {
+                elapsed = Date().timeIntervalSince(startedAt)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    private var statusText: String {
+        switch controller.state {
+        case .idle:           "Hold \(settings.pushToTalkKey.displayName) or tap"
+        case .starting:       "Starting…"
+        case .listening:      "Recording"
+        case .finishing:      "Processing…"
+        case .noTarget:       "Hold \(settings.pushToTalkKey.displayName) or tap"
+        case .error(let msg): msg
+        }
+    }
+}
+
+// MARK: - Model
+
+private struct ModelSectionView: View {
+    @State private var settings = Settings.shared
+    @State private var isPreloading = false
+    @State private var parakeetOnDisk = ParakeetModels.isDownloaded
+
+    var body: some View {
+        Form {
             Section {
                 Picker("Engine", selection: $settings.engine) {
                     ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
@@ -31,48 +227,165 @@ struct SettingsWindow: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Toggle("Compare mode (both engines)", isOn: $settings.compareMode)
+
+                Toggle("Compare mode", isOn: $settings.compareMode)
+            } header: {
+                Text("Engine")
+            } footer: {
                 Text(settings.engine == .parakeet
-                    ? "Parakeet on the Neural Engine. Resolves on release; ~470 MB model download."
+                    ? "Parakeet runs on the Neural Engine. Resolves on release; ~470 MB model download."
                     : "Apple's on-device transcriber. Streams text while you speak; no download required.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Model")
             }
 
-            Section {
-                Toggle("Clean up transcripts", isOn: $settings.cleanupEnabled)
-                if settings.cleanupEnabled {
-                    Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
-                        .disabled(!FoundationModelFormatter.isAvailable)
-                    if let reason = FoundationModelFormatter.unavailableReason {
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            if settings.engine == .parakeet || settings.compareMode {
+                Section {
+                    LabeledContent("Parakeet models") {
+                        if parakeetOnDisk {
+                            Label("Installed", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.footnote)
+                        } else {
+                            Button(isPreloading ? "Downloading…" : "Download (~470 MB)") {
+                                downloadParakeet()
+                            }
+                            .disabled(isPreloading)
+                        }
                     }
+                } header: {
+                    Text("Downloads")
                 }
-                Text("Strips fillers, fixes spacing and punctuation. Dictionary corrections run either way.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Cleanup")
-            }
-
-            Section {
-                Toggle("Sound effects", isOn: $settings.soundEnabled)
-            } header: {
-                Text("Audio")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 440)
+    }
+
+    private func downloadParakeet() {
+        guard !isPreloading else { return }
+        isPreloading = true
+        Task {
+            _ = try? await ParakeetModels.shared.manager()
+            parakeetOnDisk = ParakeetModels.isDownloaded
+            isPreloading = false
+        }
+    }
+}
+
+// MARK: - Cleanup
+
+private struct CleanupSectionView: View {
+    @State private var settings = Settings.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Clean up transcripts", isOn: $settings.cleanupEnabled)
+            } header: {
+                Text("Text Processing")
+            } footer: {
+                Text("Strips fillers, fixes spacing and punctuation. Dictionary corrections run either way.")
+            }
+
+            Section {
+                Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
+                    .disabled(!FoundationModelFormatter.isAvailable)
+                if let reason = FoundationModelFormatter.unavailableReason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("AI Enhancement")
+            }
+            .disabled(!settings.cleanupEnabled)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Audio
+
+private struct AudioSectionView: View {
+    @State private var settings = Settings.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Sound effects", isOn: $settings.soundEnabled)
+            } header: {
+                Text("Feedback")
+            } footer: {
+                Text("Plays a short tick when recording starts and stops.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Permissions
+
+private struct PermissionsSectionView: View {
+    @State private var hasAccessibility = Permissions.hasAccessibility
+    @State private var hasMicrophone = Permissions.hasMicrophone
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Accessibility") {
+                    if hasAccessibility {
+                        Label("Granted", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    } else {
+                        Button("Grant Access…") {
+                            Permissions.openAccessibilitySettings()
+                        }
+                    }
+                }
+            } header: {
+                Text("System")
+            } footer: {
+                Text("Required to monitor the push-to-talk key and type text into other apps.")
+            }
+
+            Section {
+                LabeledContent("Microphone") {
+                    if hasMicrophone {
+                        Label("Granted", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                    } else {
+                        Button("Grant Access…") {
+                            Permissions.openMicrophoneSettings()
+                        }
+                    }
+                }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text("Required to capture audio for speech recognition.")
+            }
+        }
+        .formStyle(.grouped)
+        .task {
+            hasAccessibility = Permissions.hasAccessibility
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                hasAccessibility = Permissions.hasAccessibility
+            }
+        }
+        .task {
+            hasMicrophone = Permissions.hasMicrophone
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                hasMicrophone = Permissions.hasMicrophone
+            }
+        }
     }
 }
 
 // MARK: - Shortcut Recorder
 
-private struct ShortcutRecorder: View {
+struct ShortcutRecorder: View {
     @Binding var key: PushToTalkKey
     @State private var isRecording = false
     @State private var eventMonitor: Any?

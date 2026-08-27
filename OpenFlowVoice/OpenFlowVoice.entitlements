@@ -3,7 +3,10 @@
 <plist version="1.0">
 <dict>
 	<!-- Deliberately NOT sandboxed: a CGEventTap and system-wide AX access are both
-	     impossible inside the App Sandbox. Distribution would be Developer ID, not MAS. -->
+	     impossible inside the App Sandbox. Distribution would be Developer ID, not MAS.
+	     Explicitly false here so Xcode archiving cannot infer sandbox from project settings. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
