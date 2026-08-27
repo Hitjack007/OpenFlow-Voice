@@ -32,6 +32,7 @@ struct OpenFlowVoiceApp: App {
 final class MainWindowController: NSWindowController, NSWindowDelegate {
     static var shared: MainWindowController?
     private weak var appDelegate: AppDelegate?
+    private var activationObserver: NSObjectProtocol?
 
     init(controller: DictationController, appDelegate: AppDelegate) {
         let window = NSWindow(
@@ -67,7 +68,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         guard let win = window else { return }
         NSApp.setActivationPolicy(.regular)
         win.orderFrontRegardless()
-        win.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if NSApp.isActive {
+            win.makeKeyAndOrderFront(nil)
+            win.makeKey()
+            win.makeMain()
+        } else {
+            activationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.window?.makeKeyAndOrderFront(nil)
+                    self?.window?.makeKey()
+                    self?.window?.makeMain()
+                    if let obs = self?.activationObserver {
+                        NotificationCenter.default.removeObserver(obs)
+                        self?.activationObserver = nil
+                    }
+                }
+            }
+        }
     }
 
     private func relinquishFocus() {
@@ -91,6 +113,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 final class ComparisonWindowController: NSWindowController, NSWindowDelegate {
     static var shared: ComparisonWindowController?
     private weak var appDelegate: AppDelegate?
+    private var activationObserver: NSObjectProtocol?
 
     init(controller: DictationController, appDelegate: AppDelegate) {
         let window = NSWindow(
@@ -118,7 +141,28 @@ final class ComparisonWindowController: NSWindowController, NSWindowDelegate {
         guard let win = window else { return }
         NSApp.setActivationPolicy(.regular)
         win.orderFrontRegardless()
-        win.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if NSApp.isActive {
+            win.makeKeyAndOrderFront(nil)
+            win.makeKey()
+            win.makeMain()
+        } else {
+            activationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.window?.makeKeyAndOrderFront(nil)
+                    self?.window?.makeKey()
+                    self?.window?.makeMain()
+                    if let obs = self?.activationObserver {
+                        NotificationCenter.default.removeObserver(obs)
+                        self?.activationObserver = nil
+                    }
+                }
+            }
+        }
     }
 
     private func relinquishFocus() {
@@ -287,12 +331,7 @@ private struct MenuContent: View {
         Divider()
 
         Button("Open OpenFlow Voice") {
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate()  // must be called while still in user-event context
-            DispatchQueue.main.async {
-                MainWindowController.shared?.window?.orderFrontRegardless()
-                MainWindowController.shared?.window?.makeKeyAndOrderFront(nil)
-            }
+            MainWindowController.shared?.showAndActivate()
         }
 
         Divider()
