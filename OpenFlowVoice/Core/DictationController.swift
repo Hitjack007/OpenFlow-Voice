@@ -226,6 +226,10 @@ final class DictationController {
                     }
                 }
             } catch {
+                // If state already moved past .starting (endDictation fired and cleaned up
+                // while we were initializing the engine), this error is from a canceled
+                // startup — not something the user needs to see.
+                guard case .starting = self.state else { return }
                 self.fail(error.localizedDescription)
             }
         }
@@ -247,11 +251,14 @@ final class DictationController {
             // or the tail of the utterance gets dropped.
             audioContinuation?.finish()
             audioContinuation = nil
+            Log.speech.info("cleanup: draining feed task")
             recorded = await feedTask?.value ?? []
             feedTask = nil
-
+            Log.speech.info("cleanup: feed done — calling engine.finish()")
             await engine?.finish()
+            Log.speech.info("cleanup: engine done — awaiting consumeTask")
             await consumeTask?.value
+            Log.speech.info("cleanup: consumeTask done")
             consumeTask = nil
             engine = nil
 
