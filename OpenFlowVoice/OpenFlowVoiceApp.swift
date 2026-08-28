@@ -36,7 +36,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     init(controller: DictationController, appDelegate: AppDelegate) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -47,7 +47,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
         window.collectionBehavior = [.managed, .participatesInCycle, .moveToActiveSpace]
-        window.minSize = NSSize(width: 760, height: 520)
+        window.minSize = NSSize(width: 700, height: 520)
         window.setFrameAutosaveName("OpenFlowVoiceMain")
         window.center()
 

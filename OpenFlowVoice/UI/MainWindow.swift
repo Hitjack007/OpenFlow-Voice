@@ -1,6 +1,46 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Sidebar Width Pin
+
+private struct SidebarWidthPin: NSViewRepresentable {
+    let width: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { pin(from: view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { pin(from: nsView) }
+    }
+
+    private func pin(from view: NSView) {
+        guard let splitVC = findSplitViewController(from: view),
+              let sidebarItem = splitVC.splitViewItems.first else { return }
+        sidebarItem.minimumThickness = width
+        sidebarItem.maximumThickness = width
+        splitVC.splitView.setPosition(width, ofDividerAt: 0)
+    }
+
+    private func findSplitViewController(from view: NSView) -> NSSplitViewController? {
+        var responder: NSResponder? = view
+        while let r = responder {
+            if let vc = r as? NSSplitViewController { return vc }
+            responder = r.nextResponder
+        }
+        var v: NSView? = view
+        while let current = v {
+            if let contentVC = current.window?.contentViewController as? NSSplitViewController {
+                return contentVC
+            }
+            v = current.superview
+        }
+        return nil
+    }
+}
+
 // MARK: - Section Enum
 
 enum MainSection: String, Identifiable {
@@ -18,17 +58,22 @@ struct MainWindow: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Label("General", systemImage: "keyboard")
-                    .tag(MainSection.general)
-                Label("Model", systemImage: "brain")
-                    .tag(MainSection.model)
-                Label("Cleanup", systemImage: "wand.and.sparkles")
-                    .tag(MainSection.cleanup)
-                Label("Audio", systemImage: "speaker.wave.2.fill")
-                    .tag(MainSection.audio)
-                Label("Permissions", systemImage: "lock.shield.fill")
-                    .tag(MainSection.permissions)
-
+                Section("Dictation") {
+                    Label("General", systemImage: "keyboard")
+                        .tag(MainSection.general)
+                    Label("Audio", systemImage: "speaker.wave.2.fill")
+                        .tag(MainSection.audio)
+                }
+                Section("Processing") {
+                    Label("Model", systemImage: "brain")
+                        .tag(MainSection.model)
+                    Label("Cleanup", systemImage: "wand.and.sparkles")
+                        .tag(MainSection.cleanup)
+                }
+                Section("Privacy") {
+                    Label("Permissions", systemImage: "lock.shield.fill")
+                        .tag(MainSection.permissions)
+                }
                 Section("History") {
                     Label("Transcriptions", systemImage: "text.bubble")
                         .tag(MainSection.transcriptions)
@@ -37,17 +82,17 @@ struct MainWindow: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 200)
             .toolbar(removing: .sidebarToggle)
+            .background(SidebarWidthPin(width: 200))
         } detail: {
             detailView
         }
-        .frame(minWidth: 760, minHeight: 520)
+        .navigationSplitViewStyle(.balanced)
+        .frame(width: 700)
         .toolbar {
-            if selection == .general || selection == nil {
-                Button("Quit app") { NSApp.terminate(nil) }
-                    .controlSize(.extraLarge)
-            }
+            Button("Quit app") { NSApp.terminate(nil) }
+                .controlSize(.extraLarge)
         }
     }
 
@@ -573,5 +618,56 @@ struct EmptyPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+}
+
+struct ShortcutRecorder: View {
+    @Binding var key: PushToTalkKey
+    @State private var isRecording = false
+    @State private var eventMonitor: Any?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(isRecording ? "Press a modifier key…" : key.displayName)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(isRecording ? .secondary : .primary)
+                .frame(minWidth: 90, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.background.secondary, in: .rect(cornerRadius: 7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(isRecording ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+
+            Button(isRecording ? "Cancel" : "Record") {
+                if isRecording { stopRecording() } else { startRecording() }
+            }
+        }
+        .onDisappear { stopRecording() }
+    }
+
+    private func startRecording() {
+        isRecording = true
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            let code = Int64(event.keyCode)
+            guard let matched = PushToTalkKey.allCases.first(where: { $0.keyCode == code }) else {
+                return event
+            }
+            Task { @MainActor in
+                self.key = matched
+                self.stopRecording()
+            }
+            return event
+        }
+        eventMonitor = monitor
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
     }
 }
