@@ -42,7 +42,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.toolbarStyle = .unified
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
+        window.title = "OpenFlow Voice"
         window.isReleasedWhenClosed = false
         window.isMovableByWindowBackground = true
         window.collectionBehavior = [.managed, .participatesInCycle, .moveToActiveSpace]

@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsWindow: View {
     let controller: DictationController
     @State private var selection: SettingsSection? = .general
+    @State private var accentColorUpdateTrigger = UUID()
 
     var body: some View {
         NavigationSplitView {
@@ -26,15 +27,30 @@ struct SettingsWindow: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .navigationSplitViewColumnWidth(200)
+            .scrollBounceBehavior(.basedOnSize)
+            .tint(.accentColor)
             .toolbar(removing: .sidebarToggle)
-            .navigationTitle("Settings")
         } detail: {
             detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(width: 700, height: 500)
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("").frame(width: 0, height: 0).accessibilityHidden(true)
+            }
+        }
+        .formStyle(.grouped)
+        .background(Color(NSColor.windowBackgroundColor))
+        .tint(.accentColor)
+        .id(accentColorUpdateTrigger)
+        .frame(width: 700, height: 600)
         .background(SettingsWindowChrome())
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AccentColorChanged"))) { _ in
+            accentColorUpdateTrigger = UUID()
+        }
     }
 
     @ViewBuilder
@@ -51,8 +67,6 @@ struct SettingsWindow: View {
 
 // MARK: - Window Chrome
 
-// SwiftUI's Settings scene ignores .windowStyle(.hiddenTitleBar), so we patch the
-// NSWindow directly once the view is inserted into it.
 private struct SettingsWindowChrome: NSViewRepresentable {
     func makeNSView(context: Context) -> SettingsWindowAccessorView { .init() }
     func updateNSView(_ nsView: SettingsWindowAccessorView, context: Context) {}
@@ -68,19 +82,26 @@ private class SettingsWindowAccessorView: NSView {
         guard let window else { return }
 
         window.styleMask.insert(.fullSizeContentView)
-        window.titleVisibility = .hidden
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
+        window.isMovableByWindowBackground = true
+        window.collectionBehavior = [.managed, .participatesInCycle, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
+        window.isExcludedFromWindowsMenu = false
+        window.isRestorable = true
+        window.identifier = NSUserInterfaceItemIdentifier("OpenFlowVoiceSettingsWindow")
+        window.title = "OpenFlow Voice"
         if window.toolbar == nil {
             window.toolbar = NSToolbar(identifier: "OpenFlowVoiceSettings")
         }
 
-        // Set .regular immediately so the dock icon appears before onAppear fires.
         NSApp.setActivationPolicy(.regular)
 
         observations = [
             NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
-            ) { _ in NSApp.setActivationPolicy(.regular) }
+            ) { _ in DispatchQueue.main.async { NSApp.setActivationPolicy(.regular) } }
         ]
     }
 }
@@ -117,11 +138,11 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 @ViewBuilder
 private func customBadge(text: String) -> some View {
     Text(text)
-        .font(.caption2.weight(.semibold))
+        .font(.footnote.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(.secondary.opacity(0.15), in: Capsule())
+        .padding(.vertical, 3)
+        .background(Color(NSColor.secondarySystemFill), in: Capsule())
 }
 
 // MARK: - General
@@ -181,11 +202,13 @@ private struct GeneralSectionView: View {
                 Text("Hold this key anywhere to dictate.")
             }
 
-            Section("App") {
-                Button("Quit OpenFlow Voice", role: .destructive) { NSApp.terminate(nil) }
-            }
         }
-        .formStyle(.grouped)
+        .navigationTitle("General")
+        .accentColor(.accentColor)
+        .toolbar {
+            Button("Quit app") { NSApp.terminate(nil) }
+                .controlSize(.extraLarge)
+        }
         .onChange(of: isRecording) { _, active in
             startedAt = active ? Date() : nil
             if !active { elapsed = 0 }
@@ -256,7 +279,8 @@ private struct ModelSectionView: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .navigationTitle("Model")
+        .accentColor(.accentColor)
     }
 
     private func downloadParakeet() {
@@ -298,7 +322,8 @@ private struct CleanupSectionView: View {
             }
             .disabled(!settings.cleanupEnabled)
         }
-        .formStyle(.grouped)
+        .navigationTitle("Cleanup")
+        .accentColor(.accentColor)
     }
 }
 
@@ -317,7 +342,8 @@ private struct AudioSectionView: View {
                 Text("Plays a short tick when recording starts and stops.")
             }
         }
-        .formStyle(.grouped)
+        .navigationTitle("Audio")
+        .accentColor(.accentColor)
     }
 }
 
@@ -365,7 +391,8 @@ private struct PermissionsSectionView: View {
                 Text("Required to capture audio for speech recognition.")
             }
         }
-        .formStyle(.grouped)
+        .navigationTitle("Permissions")
+        .accentColor(.accentColor)
         .task {
             hasAccessibility = Permissions.hasAccessibility
             while !Task.isCancelled {

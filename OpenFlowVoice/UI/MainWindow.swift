@@ -43,6 +43,12 @@ struct MainWindow: View {
             detailView
         }
         .frame(minWidth: 760, minHeight: 520)
+        .toolbar {
+            if selection == .general || selection == nil {
+                Button("Quit app") { NSApp.terminate(nil) }
+                    .controlSize(.extraLarge)
+            }
+        }
     }
 
     @ViewBuilder
@@ -321,9 +327,6 @@ private struct InlineGeneralSettings: View {
                 Text("Hold this key anywhere to dictate.")
             }
 
-            Section("App") {
-                Button("Quit OpenFlow Voice", role: .destructive) { NSApp.terminate(nil) }
-            }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
