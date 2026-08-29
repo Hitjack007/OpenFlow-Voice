@@ -53,6 +53,7 @@ final class DictationController {
         }
     }
 
+    private(set) var isHandsFree = false
     private(set) var state: State = .idle
     /// Live transcript, updated as the engine revises it. Drives the HUD.
     private(set) var transcript = ""
@@ -106,8 +107,20 @@ final class DictationController {
     /// Wires the hotkey callbacks and installs the event tap in this process.
     func activate() {
         let monitor = HotkeyMonitor.shared
-        monitor.onPress = { [weak self] in self?.beginDictation() }
-        monitor.onRelease = { [weak self] in self?.endDictation() }
+        monitor.onPress = { [weak self] in
+            guard let self else { return }
+            if self.isHandsFree {
+                self.isHandsFree = false
+                self.endDictation()
+            } else {
+                self.beginDictation()
+            }
+        }
+        monitor.onRelease = { [weak self] in
+            guard let self else { return }
+            if !self.isHandsFree { self.endDictation() }
+        }
+        monitor.onDoubleTap = { [weak self] in self?.beginHandsFreeMode() }
         let ok = monitor.start(key: Settings.shared.pushToTalkKey)
         if !ok {
             Log.hotkey.error("couldn't install event tap — Accessibility permission missing?")
@@ -115,6 +128,7 @@ final class DictationController {
     }
 
     func deactivate() {
+        isHandsFree = false
         HotkeyMonitor.shared.stop()
         cancelDictation()
     }
@@ -122,6 +136,11 @@ final class DictationController {
     /// Re-arms the tap after the user picks a different push-to-talk key.
     func reloadHotkey() {
         activate()
+    }
+
+    private func beginHandsFreeMode() {
+        isHandsFree = true
+        beginDictation()
     }
 
     // MARK: - Button-driven recording
@@ -339,6 +358,7 @@ final class DictationController {
     }
 
     private func cancelDictation() {
+        isHandsFree = false
         capture.stop()
         audioContinuation?.finish()
         audioContinuation = nil

@@ -12,20 +12,21 @@ final class HotkeyMonitor: @unchecked Sendable {
 
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
+    var onDoubleTap: (() -> Void)?
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isPressed = false
-    private var currentKeyCode: Int64 = 0
     private var currentFlag: UInt64 = 0
     private var shouldConsumeEvent = false
+    private var lastPressAt: Date?
+    private var lastReleaseAt: Date?
 
     /// Installs the event tap for `key`. Returns `true` on success; `false` means Accessibility
     /// has not been granted to this process yet.
     @discardableResult
     func start(key: PushToTalkKey) -> Bool {
         stopTap()
-        currentKeyCode = key.keyCode
         currentFlag = key.flagRawValue
         shouldConsumeEvent = key.shouldConsumeEvent
 
@@ -40,9 +41,8 @@ final class HotkeyMonitor: @unchecked Sendable {
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
-                let code = event.getIntegerValueField(.keyboardEventKeycode)
                 let flags = event.flags
-                let consume = monitor.handleTap(type: type, keyCode: code, flags: flags)
+                let consume = monitor.handleTap(type: type, flags: flags)
                 return consume ? nil : Unmanaged.passUnretained(event)
             },
             userInfo: refcon
@@ -68,24 +68,43 @@ final class HotkeyMonitor: @unchecked Sendable {
         tap = nil
         runLoopSource = nil
         isPressed = false
+        lastPressAt = nil
+        lastReleaseAt = nil
     }
 
     // Runs on the main thread (tap is registered on CFRunLoopGetMain).
-    private func handleTap(type: CGEventType, keyCode: Int64, flags: CGEventFlags) -> Bool {
+    private func handleTap(type: CGEventType, flags: CGEventFlags) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
 
-        guard type == .flagsChanged, keyCode == currentKeyCode else { return false }
+        guard type == .flagsChanged else { return false }
 
         let nowPressed = flags.rawValue & currentFlag != 0
         guard nowPressed != isPressed else { return false }
         isPressed = nowPressed
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if nowPressed { self.onPress?() } else { self.onRelease?() }
+        let now = Date()
+        if nowPressed {
+            let isDoubleTap: Bool
+            if let lastPressAt, let lastReleaseAt {
+                let prevHoldDuration = lastReleaseAt.timeIntervalSince(lastPressAt)
+                let interTapGap = now.timeIntervalSince(lastReleaseAt)
+                isDoubleTap = prevHoldDuration < 0.25 && interTapGap < 0.35
+            } else {
+                isDoubleTap = false
+            }
+            lastPressAt = now
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if isDoubleTap { self.onDoubleTap?() } else { self.onPress?() }
+            }
+        } else {
+            lastReleaseAt = now
+            DispatchQueue.main.async { [weak self] in
+                self?.onRelease?()
+            }
         }
 
         return shouldConsumeEvent
