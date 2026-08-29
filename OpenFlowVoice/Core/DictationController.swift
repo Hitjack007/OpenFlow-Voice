@@ -388,12 +388,14 @@ final class DictationController {
             return text
 
         case .local:
+            state = .enhancing
             return await FoundationModelFormatter.enhance(text)
 
         case .cloud:
             let provider = Settings.shared.cloudProvider
             guard let apiKey = KeychainStore.load(forKey: provider.keychainKey), !apiKey.isEmpty else {
                 Log.speech.info("Cloud enhancement: no API key for \(provider.rawValue, privacy: .public) — falling back to local")
+                state = .enhancing
                 return await FoundationModelFormatter.enhance(text)
             }
 
