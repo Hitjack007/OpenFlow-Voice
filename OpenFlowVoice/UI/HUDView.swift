@@ -22,6 +22,15 @@ struct HUDView: View {
             if case .noTarget(let text) = controller.state {
                 NoTargetView(text: text, controller: controller)
                     .frame(maxHeight: .infinity, alignment: .bottom)
+            } else if case .awaitingEnhancement(let text, let flagged) = controller.state {
+                AwaitingEnhancementView(text: text, flagged: flagged, controller: controller)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            } else if controller.state == .enhancing {
+                EnhancingView()
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            } else if case .awaitingRetry(let text) = controller.state {
+                AwaitingRetryView(text: text, controller: controller)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             } else {
                 RecordingPill(controller: controller)
             }
@@ -34,7 +43,7 @@ private struct RecordingPill: View {
     @Bindable var controller: DictationController
 
     var body: some View {
-        Waveform(level: controller.level, isActive: controller.state == .listening)
+        Waveform(levels: controller.levels, isActive: controller.state == .listening)
             .frame(width: 64, height: 16)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
@@ -96,38 +105,165 @@ private struct NoTargetView: View {
     }
 }
 
-/// Level-reactive bars — fixed phase offsets keep bars from pumping in unison.
-private struct Waveform: View {
-    let level: Float
-    let isActive: Bool
+private struct AwaitingEnhancementView: View {
+    let text: String
+    let flagged: [SensitiveMatch]
+    let controller: DictationController
 
-    private static let barCount = 10
-    private static let phases: [Double] = (0..<barCount).map { index in
-        (Double(index) * 0.618).truncatingRemainder(dividingBy: 1)
+    /// Unique kinds in declaration order — avoids showing the same category twice.
+    private var kinds: [SensitiveMatch.Kind] {
+        SensitiveMatch.Kind.allCases.filter { kind in flagged.contains { $0.kind == kind } }
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sensitive information detected")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(kinds, id: \.self) { kind in
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.shield.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.yellow.opacity(0.9))
+                        Text(kind.displayName)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.65))
+                    }
+                }
+            }
+
+            Text("Send to \(Settings.shared.cloudProvider.displayName) for enhancement?")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
+
+            HStack(spacing: 8) {
+                Button("No, use local AI") {
+                    controller.resolveEnhancement(sendToCloud: false)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.12), in: Capsule())
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button("Yes, send redacted") {
+                    controller.resolveEnhancement(sendToCloud: true)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Brand.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Brand.accent.opacity(0.15), in: Capsule())
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: 300)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.06))
+        }
+    }
+}
+
+private struct EnhancingView: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .scaleEffect(0.7)
+                .colorScheme(.dark)
+            Text("Enhancing…")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.06))
+        }
+    }
+}
+
+private struct AwaitingRetryView: View {
+    let text: String
+    let controller: DictationController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Enhancement failed")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Text("Cloud unavailable. Try on-device AI?")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
+
+            HStack(spacing: 8) {
+                Button("Skip") {
+                    controller.resolveRetry(useLocal: false)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.12), in: Capsule())
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button("Try local AI") {
+                    controller.resolveRetry(useLocal: true)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Brand.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Brand.accent.opacity(0.15), in: Capsule())
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: 280)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.06))
+        }
+    }
+}
+
+/// Spectrum bars driven by real per-band mel levels from the microphone FFT pipeline.
+private struct Waveform: View {
+    let levels: [Float]
+    let isActive: Bool
+
+    private static let barCount = 10
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { _ in
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<Self.barCount, id: \.self) { index in
                     Capsule()
                         .fill(Color.white)
-                        .frame(width: 3, height: height(for: index, at: t))
+                        .frame(width: 3, height: height(for: index))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private func height(for index: Int, at time: TimeInterval) -> CGFloat {
+    private func height(for index: Int) -> CGFloat {
         let floorHeight: CGFloat = 3
-        guard isActive else { return floorHeight }
-
-        let phase = Self.phases[index]
-        let wave = sin(time * 6.0 + phase * .pi * 2)
-        let amplitude = CGFloat(max(0.04, level))
-        let scaled = amplitude * (0.55 + 0.45 * CGFloat(wave))
-        return floorHeight + max(0, scaled) * 11
+        guard isActive, index < levels.count else { return floorHeight }
+        return floorHeight + CGFloat(min(1.0, max(0.02, levels[index] * 4))) * 13
     }
 }

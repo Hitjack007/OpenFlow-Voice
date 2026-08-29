@@ -67,7 +67,7 @@ struct MainWindow: View {
                 Section("Processing") {
                     Label("Model", systemImage: "brain")
                         .tag(MainSection.model)
-                    Label("Cleanup", systemImage: "wand.and.sparkles")
+                    Label("Cleanup & Enhancement", systemImage: "wand.and.sparkles")
                         .tag(MainSection.cleanup)
                 }
                 Section("Privacy") {
@@ -352,7 +352,7 @@ private struct InlineGeneralSettings: View {
 
                     Spacer()
 
-                    SidebarLevelBars(level: controller.level, isActive: isRecording)
+                    SidebarLevelBars(level: controller.levels.max() ?? 0, isActive: isRecording)
                 }
             }
 
@@ -390,12 +390,15 @@ private struct InlineGeneralSettings: View {
 
     private var statusText: String {
         switch controller.state {
-        case .idle:           "Hold \(settings.pushToTalkKey.displayName) or tap"
-        case .starting:       "Starting…"
-        case .listening:      "Recording"
-        case .finishing:      "Processing…"
-        case .noTarget:       "Hold \(settings.pushToTalkKey.displayName) or tap"
-        case .error(let msg): msg
+        case .idle:                  "Hold \(settings.pushToTalkKey.displayName) or tap"
+        case .starting:              "Starting…"
+        case .listening:             "Recording"
+        case .finishing:             "Processing…"
+        case .awaitingEnhancement:   "Confirm enhancement…"
+        case .enhancing:             "Enhancing…"
+        case .awaitingRetry:         "Enhancement failed"
+        case .noTarget:              "Hold \(settings.pushToTalkKey.displayName) or tap"
+        case .error(let msg):        msg
         }
     }
 }
@@ -460,10 +463,13 @@ private struct InlineModelSettings: View {
     }
 }
 
-// MARK: - Inline Settings: Cleanup
+// MARK: - Inline Settings: Cleanup & Enhancement
 
 private struct InlineCleanupSettings: View {
     @State private var settings = Settings.shared
+    @State private var apiKey: String = ""
+    @State private var geminiModelLabel: String = ""
+    @State private var isResolvingGeminiModel = false
 
     var body: some View {
         Form {
@@ -482,11 +488,97 @@ private struct InlineCleanupSettings: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Text Processing")
+                Text("Cleanup")
+            }
+
+            Section {
+                Picker("Mode", selection: $settings.enhancementMode) {
+                    ForEach(EnhancementMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                switch settings.enhancementMode {
+                case .off:
+                    Text("No enhancement — only cleanup and dictionary corrections apply.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                case .local:
+                    Text("Uses Apple Intelligence to improve grammar, structure, and clarity. Runs entirely on-device.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if !FoundationModelFormatter.isAvailable, let reason = FoundationModelFormatter.unavailableReason {
+                        Label(reason, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                case .cloud:
+                    Picker("Provider", selection: $settings.cloudProvider) {
+                        ForEach(CloudProviderChoice.allCases, id: \.self) { p in
+                            Text(p.displayName).tag(p)
+                        }
+                    }
+                    SecureField("API Key", text: apiKeyBinding)
+                        .textFieldStyle(.roundedBorder)
+                    if settings.cloudProvider == .gemini && !apiKey.isEmpty {
+                        LabeledContent("Model") {
+                            if isResolvingGeminiModel {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("Detecting…").foregroundStyle(.secondary)
+                                }
+                            } else if !geminiModelLabel.isEmpty {
+                                Text(geminiModelLabel).foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.footnote)
+                    }
+                    Label(
+                        "Your transcribed text is sent to \(settings.cloudProvider.displayName). Sensitive data is detected and redacted before sending; you'll confirm before any redacted text leaves this Mac.",
+                        systemImage: "network"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Enhancement")
             }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            apiKey = KeychainStore.load(forKey: settings.cloudProvider.keychainKey) ?? ""
+        }
+        .onChange(of: settings.cloudProvider) { _, _ in
+            apiKey = KeychainStore.load(forKey: settings.cloudProvider.keychainKey) ?? ""
+        }
+        .task(id: settings.cloudProvider.rawValue + apiKey) {
+            guard settings.cloudProvider == .gemini, !apiKey.isEmpty else {
+                geminiModelLabel = ""
+                return
+            }
+            isResolvingGeminiModel = true
+            let model = await CloudEnhancer.resolveGeminiModel(apiKey: apiKey)
+            isResolvingGeminiModel = false
+            geminiModelLabel = model
+        }
+    }
+
+    private var apiKeyBinding: Binding<String> {
+        Binding(
+            get: { apiKey },
+            set: { newValue in
+                apiKey = newValue
+                if newValue.isEmpty {
+                    KeychainStore.delete(forKey: settings.cloudProvider.keychainKey)
+                } else {
+                    KeychainStore.save(newValue, forKey: settings.cloudProvider.keychainKey)
+                }
+            }
+        )
     }
 }
 

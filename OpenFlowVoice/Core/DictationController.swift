@@ -30,18 +30,24 @@ final class DictationController {
         case finishing
         /// Dictation succeeded but no text field had focus — the HUD shows a copy fallback.
         case noTarget(String)
+        /// Cloud enhancement was requested and sensitive data was detected; waiting for user to confirm.
+        case awaitingEnhancement(text: String, flagged: [SensitiveMatch])
+        /// Enhancement is running; HUD stays expanded with a loading indicator.
+        case enhancing
+        /// Cloud enhancement failed; HUD asks whether to retry with local AI.
+        case awaitingRetry(text: String)
         case error(String)
 
         var isActive: Bool {
             switch self {
             case .starting, .listening, .finishing: true
-            case .idle, .noTarget, .error: false
+            default: false
             }
         }
 
         var showsHUD: Bool {
             switch self {
-            case .starting, .listening, .finishing, .noTarget: true
+            case .starting, .listening, .finishing, .noTarget, .awaitingEnhancement, .enhancing, .awaitingRetry: true
             case .idle, .error: false
             }
         }
@@ -50,8 +56,8 @@ final class DictationController {
     private(set) var state: State = .idle
     /// Live transcript, updated as the engine revises it. Drives the HUD.
     private(set) var transcript = ""
-    /// Smoothed 0…1 mic level for the waveform.
-    private(set) var level: Float = 0
+    /// Per-band mel spectrum levels (0…1) for the waveform; 10 bands, envelope-followed.
+    private(set) var levels: [Float] = [Float](repeating: 0, count: 10)
 
     private let capture = AudioCapture()
     private let makeEngine: @Sendable () -> any TranscriptionEngine
@@ -81,6 +87,11 @@ final class DictationController {
     /// Compare mode only: the recording, kept so every engine sees identical audio.
     private var recorded: [AudioChunk] = []
     private var isComparing = false
+
+    /// Suspended while waiting for the user to resolve the enhancement confirmation.
+    private var enhancementContinuation: CheckedContinuation<Bool, Never>?
+    /// Suspended while waiting for the user to choose retry-local or skip after cloud failure.
+    private var retryContinuation: CheckedContinuation<Bool, Never>?
 
     init(
         formatter: (any TextFormatter)? = nil,
@@ -131,6 +142,22 @@ final class DictationController {
     func stopButtonRecording() {
         WisprTrigger.release()
         endDictation()
+    }
+
+    // MARK: - Enhancement confirmation
+
+    /// Called by the HUD's confirmation buttons. Resumes the suspended enhancement flow.
+    func resolveEnhancement(sendToCloud: Bool) {
+        state = .enhancing  // keep HUD expanded while work runs
+        enhancementContinuation?.resume(returning: sendToCloud)
+        enhancementContinuation = nil
+    }
+
+    /// Called by the retry HUD buttons after cloud enhancement fails.
+    func resolveRetry(useLocal: Bool) {
+        if useLocal { state = .enhancing }  // show spinner while local model runs
+        retryContinuation?.resume(returning: useLocal)
+        retryContinuation = nil
     }
 
     // MARK: - Dictation
@@ -202,8 +229,8 @@ final class DictationController {
                     onBuffer: { chunk in
                         audioContinuation.yield(chunk)
                     },
-                    onLevel: { [weak self] level in
-                        Task { @MainActor in self?.updateLevel(level) }
+                    onLevel: { [weak self] bands in
+                        Task { @MainActor in self?.updateLevel(bands) }
                     }
                 )
 
@@ -243,7 +270,7 @@ final class DictationController {
         guard state.isActive, state != .finishing else { return }
         state = .finishing
         capture.stop()
-        level = 0
+        levels = [Float](repeating: 0, count: 10)
         releasedAt = Date()
 
         Task { @MainActor in
@@ -278,10 +305,12 @@ final class DictationController {
                 ? await activeFormatter.format(raw)
                 : raw
 
+            let enhanced = await runEnhancement(cleaned, rawTranscript: raw)
+
             // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
             // only raises the odds of the right word; this is the pass that guarantees it,
             // so it must not be something the user can accidentally switch off.
-            let (output, corrections) = DictionaryStore.shared.corrector.apply(to: cleaned)
+            let (output, corrections) = DictionaryStore.shared.corrector.apply(to: enhanced)
             if !corrections.isEmpty {
                 Log.speech.info("dictionary · \(corrections.count, privacy: .public) correction(s) applied")
             }
@@ -318,13 +347,24 @@ final class DictationController {
         consumeTask?.cancel()
         consumeTask = nil
 
+        // If we're waiting for the user to confirm cloud enhancement or retry, resolve with
+        // "no"/"skip" so the suspended endDictation task can clean up rather than leak.
+        if let cont = enhancementContinuation {
+            cont.resume(returning: false)
+            enhancementContinuation = nil
+        }
+        if let cont = retryContinuation {
+            cont.resume(returning: false)
+            retryContinuation = nil
+        }
+
         let engine = self.engine
         self.engine = nil
         Task { await engine?.finish() }
 
         state = .idle
         transcript = ""
-        level = 0
+        levels = [Float](repeating: 0, count: 10)
     }
 
     private func teardown() async {
@@ -338,6 +378,99 @@ final class DictationController {
         consumeTask?.cancel()
         consumeTask = nil
         state = .idle
+    }
+
+    // MARK: - Enhancement
+
+    private func runEnhancement(_ text: String, rawTranscript: String = "") async -> String {
+        switch Settings.shared.enhancementMode {
+        case .off:
+            return text
+
+        case .local:
+            return await FoundationModelFormatter.enhance(text)
+
+        case .cloud:
+            let provider = Settings.shared.cloudProvider
+            guard let apiKey = KeychainStore.load(forKey: provider.keychainKey), !apiKey.isEmpty else {
+                Log.speech.info("Cloud enhancement: no API key for \(provider.rawValue, privacy: .public) — falling back to local")
+                return await FoundationModelFormatter.enhance(text)
+            }
+
+            // Scan cleaned text for redactable positions; scan raw transcript for detection
+            // coverage (cleanup can corrupt spoken numbers into forms the regex can't match).
+            let redactMatches = SensitivityScanner.scan(text)
+            var allKinds = Set(redactMatches.map(\.kind))
+            if !rawTranscript.isEmpty {
+                allKinds.formUnion(SensitivityScanner.scan(rawTranscript).map(\.kind))
+            }
+            Log.speech.info("sensitivity: \(redactMatches.count, privacy: .public) redactable, \(allKinds.count, privacy: .public) total kind(s) in: \(text, privacy: .private)")
+
+            if allKinds.isEmpty {
+                // No sensitive data found in either scan — send directly to cloud.
+                do {
+                    return try await CloudEnhancer.enhance(text, provider: provider)
+                } catch {
+                    Log.speech.error("Cloud enhancement failed: \(error.localizedDescription)")
+                    let useLocal: Bool = await withCheckedContinuation { continuation in
+                        retryContinuation = continuation
+                        state = .awaitingRetry(text: text)
+                    }
+                    return useLocal ? await FoundationModelFormatter.enhance(text) : text
+                }
+            }
+
+            // Build display list: real redactable matches + synthetic kind-only entries
+            // for kinds found in raw text that have no corresponding span in cleaned text.
+            let redactKinds = Set(redactMatches.map(\.kind))
+            var displayMatches = redactMatches
+            for kind in allKinds.subtracting(redactKinds) {
+                displayMatches.append(SensitiveMatch(
+                    kind: kind, placeholder: "", original: "",
+                    nsRange: NSRange(location: NSNotFound, length: 0)
+                ))
+            }
+
+            // Suspend and show HUD confirmation.
+            let sendToCloud: Bool = await withCheckedContinuation { continuation in
+                self.enhancementContinuation = continuation
+                self.state = .awaitingEnhancement(text: text, flagged: displayMatches)
+            }
+
+            if !sendToCloud {
+                return await FoundationModelFormatter.enhance(text)
+            }
+
+            // If no redactable spans exist in the cleaned text (sensitive data was only
+            // detected in the raw transcript), the cleanup already transformed those values.
+            // Sending to cloud unredacted would expose them — use local instead.
+            guard !redactMatches.isEmpty else {
+                Log.speech.info("Sensitive kinds detected in raw transcript but not redactable in cleaned text — using local enhancement")
+                return await FoundationModelFormatter.enhance(text)
+            }
+
+            let redacted = SensitivityScanner.redact(text, matches: redactMatches)
+            let mapping = Dictionary(uniqueKeysWithValues: redactMatches.map { ($0.placeholder, $0.original) })
+            do {
+                let cloudResult = try await CloudEnhancer.enhance(redacted, provider: provider)
+                return await FoundationModelFormatter.restore(
+                    redactedInput: redacted,
+                    mapping: mapping,
+                    cloudOutput: cloudResult
+                )
+            } catch {
+                Log.speech.error("Cloud enhancement (redacted) failed: \(error.localizedDescription)")
+                var restored = redacted
+                for (placeholder, original) in mapping {
+                    restored = restored.replacingOccurrences(of: placeholder, with: original)
+                }
+                let useLocal: Bool = await withCheckedContinuation { continuation in
+                    retryContinuation = continuation
+                    state = .awaitingRetry(text: restored)
+                }
+                return useLocal ? await FoundationModelFormatter.enhance(restored) : restored
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -445,9 +578,8 @@ final class DictationController {
         self.releasedAt = nil
     }
 
-    /// Light smoothing so the waveform glides instead of strobing at buffer rate.
-    private func updateLevel(_ new: Float) {
-        level += (new - level) * 0.35
+    private func updateLevel(_ new: [Float]) {
+        levels = new
     }
 
     private func fail(_ message: String) {
@@ -461,7 +593,7 @@ final class DictationController {
         consumeTask?.cancel()
         consumeTask = nil
         state = .error(message)
-        level = 0
+        levels = [Float](repeating: 0, count: 10)
 
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))

@@ -234,6 +234,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Prewarm the on-device model, then keep it warm every 90 seconds so the assets
+        // stay resident while the app lives in the menu bar.
+        Task.detached(priority: .utility) {
+            await FoundationModelFormatter.prewarm()
+            while true {
+                try? await Task.sleep(for: .seconds(90))
+                await FoundationModelFormatter.prewarm()
+            }
+        }
+
         if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(400))

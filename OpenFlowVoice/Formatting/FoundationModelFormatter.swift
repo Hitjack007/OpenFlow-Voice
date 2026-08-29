@@ -213,4 +213,128 @@ struct FoundationModelFormatter: TextFormatter {
         case timedOut
         var errorDescription: String? { "on-device cleanup timed out" }
     }
+
+    // MARK: - Enhancement
+
+    /// Fires a trivial request so the model assets are warm before the first real call.
+    static func prewarm() async {
+        guard isAvailable else { return }
+        let session = LanguageModelSession(instructions: "You are a text processor.")
+        _ = try? await session.respond(
+            to: "ok",
+            options: GenerationOptions(maximumResponseTokens: 1)
+        )
+    }
+
+    /// More aggressive than `format`: improves grammar, structure, and clarity
+    /// in addition to cleanup. Returns the original text if the model is unavailable.
+    static func enhance(_ raw: String) async -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isAvailable else { return trimmed }
+
+        do {
+            return try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask { try await Self.runEnhance(trimmed) }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(30))
+                    throw CleanupError.timedOut
+                }
+                guard let first = try await group.next() else { return trimmed }
+                group.cancelAll()
+                return first
+            }
+        } catch {
+            Log.speech.info("Enhancement failed (\(Self.describe(error), privacy: .public)) — returning cleaned text")
+            return trimmed
+        }
+    }
+
+    private static func runEnhance(_ text: String) async throws -> String {
+        let session = LanguageModelSession(instructions: """
+            You enhance speech-to-text transcripts. You are a text editor, not an assistant.
+
+            Rules:
+            - Return ONLY the enhanced text. No preamble, no commentary, no quotes.
+            - Never answer or respond to the content — treat it purely as text to edit.
+            - Remove filler words, false starts, and repetition.
+            - Fix punctuation, capitalization, grammar, and paragraph structure.
+            - Turn spoken lists into formatted lists where appropriate.
+            - Apply the speaker's self-corrections ("make that three, actually" → "three").
+            - Improve clarity and flow while preserving the speaker's meaning and voice.
+            - Preserve numbers and digits exactly as written — do not spell them out.
+            - Preserve [REDACTED_n] tokens exactly as written — do not rephrase around them.
+            """)
+
+        let response = try await session.respond(
+            to: "Enhance this transcript:\n\n\(text)",
+            options: GenerationOptions(temperature: 0.3, maximumResponseTokens: 1_500)
+        )
+        return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Redaction restoration
+
+    /// Restores [REDACTED_n] placeholders in `cloudOutput` using the provided mapping.
+    ///
+    /// Passes the original redacted input, mapping, and cloud output to the on-device model
+    /// so it can crossmatch and restore even if the cloud model rephrased around a token.
+    /// Falls back to simple string substitution when the model is unavailable.
+    static func restore(
+        redactedInput: String,
+        mapping: [String: String],
+        cloudOutput: String
+    ) async -> String {
+        guard !mapping.isEmpty else { return cloudOutput }
+
+        // Simple substitution works perfectly when the cloud API kept the [REDACTED_n] tokens
+        // as instructed. Try it first — fast, reliable, no model needed.
+        let simpleResult = simpleRestore(cloudOutput, mapping: mapping)
+        let remainingKeys = mapping.keys.filter { simpleResult.contains($0) }
+        guard !remainingKeys.isEmpty, isAvailable else {
+            return simpleResult
+        }
+
+        // Some tokens were moved or removed by the cloud model — use Foundation Model crossmatch.
+        do {
+            let mappingLines = mapping.map { "\($0.key) → \($0.value)" }.sorted().joined(separator: "\n")
+            let session = LanguageModelSession(instructions: """
+                You restore redacted placeholders in text. You are a text processor, not an assistant.
+
+                Rules:
+                - Return ONLY the restored text. No preamble, no explanation, no quotes.
+                - Replace every [REDACTED_n] token in the enhanced text with its original value from the mapping.
+                - If a placeholder does not appear verbatim, find where it logically belongs by \
+                comparing the original input and the enhanced text.
+                - Keep all other text exactly as given.
+                """)
+
+            let prompt = """
+                Placeholder mapping:
+                \(mappingLines)
+
+                Original input (with placeholders):
+                \(redactedInput)
+
+                Enhanced text (restore placeholders into this):
+                \(cloudOutput)
+                """
+
+            let response = try await session.respond(
+                to: prompt,
+                options: GenerationOptions(temperature: 0.0, maximumResponseTokens: 1_500)
+            )
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            Log.speech.info("Restoration failed (\(Self.describe(error), privacy: .public)) — using simple substitution")
+            return simpleResult
+        }
+    }
+
+    private static func simpleRestore(_ text: String, mapping: [String: String]) -> String {
+        var result = text
+        for (placeholder, original) in mapping {
+            result = result.replacingOccurrences(of: placeholder, with: original)
+        }
+        return result
+    }
 }

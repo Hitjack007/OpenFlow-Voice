@@ -1,6 +1,38 @@
 import Foundation
 import Observation
 
+enum EnhancementMode: String, CaseIterable, Sendable {
+    case off
+    case local
+    case cloud
+
+    var displayName: String {
+        switch self {
+        case .off:   "Off"
+        case .local: "On-device AI"
+        case .cloud: "Cloud AI"
+        }
+    }
+}
+
+enum CloudProviderChoice: String, CaseIterable, Sendable {
+    case claude
+    case openai
+    case groq
+    case gemini
+
+    var displayName: String {
+        switch self {
+        case .claude: "Claude (Anthropic)"
+        case .openai: "ChatGPT (OpenAI)"
+        case .groq:   "Groq"
+        case .gemini: "Gemini (Google)"
+        }
+    }
+
+    var keychainKey: String { "apikey.\(rawValue)" }
+}
+
 /// Which speech engine transcribes an utterance.
 enum SpeechEngineChoice: String, CaseIterable, Sendable {
     case apple
@@ -51,15 +83,25 @@ final class Settings {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
 
+    var enhancementMode: EnhancementMode {
+        didSet { defaults.set(enhancementMode.rawValue, forKey: Keys.enhancementMode) }
+    }
+
+    var cloudProvider: CloudProviderChoice {
+        didSet { defaults.set(cloudProvider.rawValue, forKey: Keys.cloudProvider) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let pushToTalkKey = "pushToTalkKey"
+        static let pushToTalkKey  = "pushToTalkKey"
         static let cleanupEnabled = "cleanupEnabled"
-        static let soundEnabled = "soundEnabled"
-        static let engine = "engine"
-        static let smartCleanup = "smartCleanup"
-        static let compareMode = "compareMode"
+        static let soundEnabled   = "soundEnabled"
+        static let engine         = "engine"
+        static let smartCleanup   = "smartCleanup"
+        static let compareMode    = "compareMode"
+        static let enhancementMode = "enhancementMode"
+        static let cloudProvider  = "cloudProvider"
     }
 
     private init() {
@@ -69,9 +111,11 @@ final class Settings {
         pushToTalkKey = PushToTalkKey(rawValue: migrated) ?? .leftOption
         // Apple by default: no download, no dependency, live text while speaking.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
-        cleanupEnabled = defaults.object(forKey: Keys.cleanupEnabled) as? Bool ?? true
-        smartCleanup = defaults.object(forKey: Keys.smartCleanup) as? Bool ?? false
-        compareMode = defaults.object(forKey: Keys.compareMode) as? Bool ?? false
-        soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        cleanupEnabled  = defaults.object(forKey: Keys.cleanupEnabled)  as? Bool ?? true
+        smartCleanup    = defaults.object(forKey: Keys.smartCleanup)    as? Bool ?? false
+        compareMode     = defaults.object(forKey: Keys.compareMode)     as? Bool ?? false
+        soundEnabled    = defaults.object(forKey: Keys.soundEnabled)    as? Bool ?? true
+        enhancementMode = EnhancementMode(rawValue: defaults.string(forKey: Keys.enhancementMode) ?? "") ?? .off
+        cloudProvider   = CloudProviderChoice(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .claude
     }
 }

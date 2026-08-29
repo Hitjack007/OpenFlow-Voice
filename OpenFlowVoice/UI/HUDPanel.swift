@@ -8,8 +8,11 @@ import SwiftUI
 /// nothing to insert into. Hence `.nonactivatingPanel` plus `canBecomeKey == false`.
 @MainActor
 final class HUDPanel: NSPanel {
-    private static let pillSize     = NSSize(width: 96, height: 34)
-    private static let expandedSize = NSSize(width: 300, height: 100)
+    private static let pillSize        = NSSize(width: 96,  height: 34)
+    private static let expandedSize    = NSSize(width: 300, height: 100)
+    private static let enhancementSize = NSSize(width: 300, height: 176)
+    private static let enhancingSize   = NSSize(width: 180, height: 54)
+    private static let retrySize       = NSSize(width: 280, height: 114)
 
     /// Pixels between the bottom of the HUD and the top of the Dock/menu-bar area.
     private static let dockGap: CGFloat = 20
@@ -70,13 +73,29 @@ final class HUDPanel: NSPanel {
     /// Resizes and configures the panel for the given controller state.
     /// Must be called before `present()` so the first reposition uses the right size.
     func updateForState(_ state: DictationController.State) {
-        let isNoTarget: Bool
-        if case .noTarget = state { isNoTarget = true } else { isNoTarget = false }
+        let isInteractive: Bool
+        let targetSize: NSSize
 
-        ignoresMouseEvents = !isNoTarget
-        let targetSize = isNoTarget ? Self.expandedSize : Self.pillSize
+        switch state {
+        case .noTarget:
+            isInteractive = true
+            targetSize = Self.expandedSize
+        case .awaitingEnhancement:
+            isInteractive = true
+            targetSize = Self.enhancementSize
+        case .enhancing:
+            isInteractive = false
+            targetSize = Self.enhancingSize
+        case .awaitingRetry:
+            isInteractive = true
+            targetSize = Self.retrySize
+        default:
+            isInteractive = false
+            targetSize = Self.pillSize
+        }
+
+        ignoresMouseEvents = !isInteractive
         guard frame.size != targetSize else { return }
-
         setContentSize(targetSize)
         reposition()
     }
