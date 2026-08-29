@@ -318,6 +318,7 @@ private struct InlineGeneralSettings: View {
     @State private var settings = Settings.shared
     @State private var elapsed: TimeInterval = 0
     @State private var startedAt: Date?
+    @State private var isAddingApp = false
 
     private var isRecording: Bool { controller.state.isActive }
 
@@ -372,6 +373,49 @@ private struct InlineGeneralSettings: View {
                 Text("Hold this key anywhere to dictate.")
             }
 
+            Section {
+                if settings.excludedBundleIDs.isEmpty {
+                    Text("No apps excluded")
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
+                } else {
+                    ForEach(settings.excludedBundleIDs, id: \.self) { bundleID in
+                        HStack(spacing: 8) {
+                            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                    .resizable()
+                                    .frame(width: 16, height: 16)
+                            }
+                            Text(appDisplayName(for: bundleID))
+                            Spacer()
+                            Button {
+                                settings.excludedBundleIDs.removeAll { $0 == bundleID }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                Button("Add App…") { isAddingApp = true }
+                    .font(.footnote)
+            } header: {
+                Text("Excluded Apps")
+            } footer: {
+                Text("The push-to-talk key is ignored when these apps are frontmost, so their native modifier-key shortcuts still work.")
+            }
+
+        }
+        .sheet(isPresented: $isAddingApp) {
+            AppPickerSheet { bundleID in
+                if !settings.excludedBundleIDs.contains(bundleID) {
+                    settings.excludedBundleIDs.append(bundleID)
+                }
+                isAddingApp = false
+            } onCancel: {
+                isAddingApp = false
+            }
         }
         .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -400,6 +444,14 @@ private struct InlineGeneralSettings: View {
         case .noTarget:              "Hold \(settings.pushToTalkKey.displayName) or tap"
         case .error(let msg):        msg
         }
+    }
+
+    private func appDisplayName(for bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+              let bundle = Bundle(url: url) else { return bundleID }
+        return (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? bundleID
     }
 }
 
@@ -661,6 +713,124 @@ private struct InlinePermissionsSettings: View {
                 hasMicrophone = Permissions.hasMicrophone
             }
         }
+    }
+}
+
+// MARK: - App Picker
+
+private struct AppEntry: Identifiable {
+    let id: String  // bundle ID
+    let name: String
+    let icon: NSImage
+}
+
+private struct AppPickerSheet: View {
+    let onSelect: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var apps: [AppEntry] = []
+    @State private var searchText = ""
+    @State private var isLoading = true
+
+    private var filtered: [AppEntry] {
+        guard !searchText.isEmpty else { return apps }
+        return apps.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.id.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Select App to Exclude")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel", action: onCancel)
+            }
+            .padding([.horizontal, .top])
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if isLoading {
+                VStack {
+                    ProgressView("Scanning applications…")
+                        .padding()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(filtered) { app in
+                    Button {
+                        onSelect(app.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(nsImage: app.icon)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: 28, height: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(app.name)
+                                    .fontWeight(.medium)
+                                Text(app.id)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .searchable(text: $searchText, prompt: "Search by name or bundle ID")
+            }
+        }
+        .frame(width: 420, height: 520)
+        .task { await loadApps() }
+    }
+
+    @MainActor
+    private func loadApps() async {
+        let appData = await Task.detached(priority: .userInitiated) {
+            scanApps()
+        }.value
+        apps = appData.map { AppEntry(id: $0.bundleID, name: $0.name, icon: NSWorkspace.shared.icon(forFile: $0.path)) }
+        isLoading = false
+    }
+
+    nonisolated private func scanApps() -> [(name: String, bundleID: String, path: String)] {
+        let fm = FileManager.default
+        var seen = Set<String>()
+        var result: [(name: String, bundleID: String, path: String)] = []
+
+        let dirs: [URL] = [
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: "/System/Applications"),
+            fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications")
+        ]
+
+        for dir in dirs {
+            guard let enumerator = fm.enumerator(
+                at: dir,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+
+            for case let url as URL in enumerator where url.pathExtension == "app" {
+                guard let bundle = Bundle(url: url),
+                      let bundleID = bundle.bundleIdentifier,
+                      !seen.contains(bundleID) else { continue }
+
+                let name = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+                    ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+                    ?? url.deletingPathExtension().lastPathComponent
+
+                seen.insert(bundleID)
+                result.append((name: name, bundleID: bundleID, path: url.path))
+            }
+        }
+
+        return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 }
 

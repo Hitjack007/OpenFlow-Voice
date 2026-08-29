@@ -91,17 +91,24 @@ final class Settings {
         didSet { defaults.set(cloudProvider.rawValue, forKey: Keys.cloudProvider) }
     }
 
+    /// Bundle IDs of apps where the push-to-talk hotkey is suppressed so the key's
+    /// native function is preserved (e.g. Option in Photoshop, Command in games).
+    var excludedBundleIDs: [String] {
+        didSet { defaults.set(excludedBundleIDs, forKey: Keys.excludedBundleIDs) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let pushToTalkKey  = "pushToTalkKey"
-        static let cleanupEnabled = "cleanupEnabled"
-        static let soundEnabled   = "soundEnabled"
-        static let engine         = "engine"
-        static let smartCleanup   = "smartCleanup"
-        static let compareMode    = "compareMode"
-        static let enhancementMode = "enhancementMode"
-        static let cloudProvider  = "cloudProvider"
+        static let pushToTalkKey    = "pushToTalkKey"
+        static let cleanupEnabled   = "cleanupEnabled"
+        static let soundEnabled     = "soundEnabled"
+        static let engine           = "engine"
+        static let smartCleanup     = "smartCleanup"
+        static let compareMode      = "compareMode"
+        static let enhancementMode  = "enhancementMode"
+        static let cloudProvider    = "cloudProvider"
+        static let excludedBundleIDs = "excludedBundleIDs"
     }
 
     private init() {
@@ -111,11 +118,12 @@ final class Settings {
         pushToTalkKey = PushToTalkKey(rawValue: migrated) ?? .leftOption
         // Apple by default: no download, no dependency, live text while speaking.
         engine = SpeechEngineChoice(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
-        cleanupEnabled  = defaults.object(forKey: Keys.cleanupEnabled)  as? Bool ?? true
-        smartCleanup    = defaults.object(forKey: Keys.smartCleanup)    as? Bool ?? false
-        compareMode     = defaults.object(forKey: Keys.compareMode)     as? Bool ?? false
-        soundEnabled    = defaults.object(forKey: Keys.soundEnabled)    as? Bool ?? true
-        enhancementMode = EnhancementMode(rawValue: defaults.string(forKey: Keys.enhancementMode) ?? "") ?? .off
-        cloudProvider   = CloudProviderChoice(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .claude
+        cleanupEnabled   = defaults.object(forKey: Keys.cleanupEnabled)  as? Bool ?? true
+        smartCleanup     = defaults.object(forKey: Keys.smartCleanup)    as? Bool ?? false
+        compareMode      = defaults.object(forKey: Keys.compareMode)     as? Bool ?? false
+        soundEnabled     = defaults.object(forKey: Keys.soundEnabled)    as? Bool ?? true
+        enhancementMode  = EnhancementMode(rawValue: defaults.string(forKey: Keys.enhancementMode) ?? "") ?? .off
+        cloudProvider    = CloudProviderChoice(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .claude
+        excludedBundleIDs = defaults.stringArray(forKey: Keys.excludedBundleIDs) ?? []
     }
 }

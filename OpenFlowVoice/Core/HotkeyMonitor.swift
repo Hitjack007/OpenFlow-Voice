@@ -81,6 +81,12 @@ final class HotkeyMonitor: @unchecked Sendable {
 
         guard type == .flagsChanged else { return false }
 
+        // Pass the event through untouched if the frontmost app is excluded.
+        if let frontID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+            let excluded = MainActor.assumeIsolated { Settings.shared.excludedBundleIDs }
+            if excluded.contains(frontID) { return false }
+        }
+
         let nowPressed = flags.rawValue & currentFlag != 0
         guard nowPressed != isPressed else { return false }
         isPressed = nowPressed
