@@ -171,7 +171,8 @@ private struct TranscriptionList: View {
                             withAnimation { RunLog.delete(run) }
                         }
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
@@ -217,65 +218,82 @@ private struct TranscriptionRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(run.engine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(String(format: "%.2fs", run.processSeconds))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(run.date, style: .time)
-                    .font(.caption)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.1), in: .capsule)
+
+                Text(String(format: "%.1fs", run.processSeconds))
+                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
-                copyButton
-                if isHovering { deleteButton }
+
+                Spacer()
+
+                if isHovering {
+                    HStack(spacing: 4) {
+                        inlineActionPill(didCopy ? "Copied" : "Copy",
+                                        icon: didCopy ? "checkmark" : "doc.on.doc") { copyText() }
+                        inlineActionPill("Delete", icon: "trash") { onDelete() }
+                            .foregroundStyle(Color.red.opacity(0.75))
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .trailing)))
+                }
+
+                Text(run.date, style: .time)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
 
             Text(run.text)
                 .font(.body)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.bottom, run.corrections?.isEmpty == false ? 8 : 12)
 
             if let corrections = run.corrections, !corrections.isEmpty {
                 CorrectionBadges(corrections: corrections)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
             }
+
+            Divider()
         }
-        .padding(12)
-        .background(.background.secondary, in: .rect(cornerRadius: 10))
+        .background(isHovering ? Color.primary.opacity(0.03) : Color.clear)
+        .animation(.easeInOut(duration: 0.1), value: isHovering)
         .onHover { isHovering = $0 }
     }
 
-    private var copyButton: some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(run.text, forType: .string)
-            didCopy = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.4))
-                didCopy = false
+    private func inlineActionPill(_ label: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .bold))
+                Text(label)
+                    .font(.caption2.weight(.medium))
             }
-        } label: {
-            Text(didCopy ? "Copied" : "Copy")
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .glassEffect(in: .capsule)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .glassEffect(in: .capsule)
         }
         .buttonStyle(.plain)
     }
 
-    private var deleteButton: some View {
-        Button(action: onDelete) {
-            Image(systemName: "trash")
-                .font(.caption)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .glassEffect(in: .capsule)
+    private func copyText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(run.text, forType: .string)
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.4))
+            didCopy = false
         }
-        .buttonStyle(.plain)
-        .help("Delete this transcription")
     }
 }
 
@@ -455,6 +473,92 @@ private struct InlineGeneralSettings: View {
     }
 }
 
+// MARK: - Card Components
+
+private struct OptionCard<Label: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    private let label: Label
+
+    init(isSelected: Bool, action: @escaping () -> Void, @ViewBuilder label: () -> Label) {
+        self.isSelected = isSelected
+        self.action = action
+        self.label = label()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            label
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 17))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.4))
+                }
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : Color.primary.opacity(0.12),
+                            lineWidth: isSelected ? 1.5 : 1
+                        )
+                )
+        )
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+}
+
+private struct CardContent: View {
+    let title: String
+    let subtitle: String
+    var pros: [String] = []
+    var cons: [String] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !pros.isEmpty || !cons.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(pros, id: \.self) { CardBullet(text: $0, isPositive: true) }
+                    ForEach(cons, id: \.self) { CardBullet(text: $0, isPositive: false) }
+                }
+            }
+        }
+    }
+}
+
+private struct CardBullet: View {
+    let text: String
+    let isPositive: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: isPositive ? "checkmark" : "minus")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(isPositive ? Color.green : Color.secondary)
+                .frame(width: 12, height: 12, alignment: .center)
+                .padding(.top, 1.5)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(isPositive ? Color.primary : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 // MARK: - Inline Settings: Model
 
 private struct InlineModelSettings: View {
@@ -463,44 +567,72 @@ private struct InlineModelSettings: View {
     @State private var parakeetOnDisk = ParakeetModels.isDownloaded
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Engine", selection: $settings.engine) {
-                    ForEach(SpeechEngineChoice.allCases, id: \.self) { choice in
-                        Text(choice.displayName).tag(choice)
+        ScrollView {
+            VStack(spacing: 0) {
+                Text("Speech Engine")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+
+                HStack(alignment: .top, spacing: 12) {
+                    OptionCard(isSelected: settings.engine == .apple, action: { settings.engine = .apple }) {
+                        CardContent(
+                            title: "Apple Speech",
+                            subtitle: "Streams text as you speak",
+                            pros: ["Live text while dictating", "No download required", "Instant start"],
+                            cons: ["Lower accuracy on technical content"]
+                        )
+                    }
+                    OptionCard(isSelected: settings.engine == .parakeet, action: { settings.engine = .parakeet }) {
+                        CardContent(
+                            title: "Parakeet",
+                            subtitle: "Neural Engine batch model",
+                            pros: ["Higher accuracy", "Resolves full phrase at once", "Neural Engine optimized"],
+                            cons: ["~470 MB download required", "Resolves on key release only"]
+                        )
                     }
                 }
-                .pickerStyle(.segmented)
-                Toggle("Compare mode (both engines)", isOn: $settings.compareMode)
-                Text(settings.engine == .parakeet
-                    ? "Parakeet on the Neural Engine. Resolves on release; ~470 MB model download."
-                    : "Apple's on-device transcriber. Streams text while you speak; no download required.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Engine")
-            }
+                .padding(.horizontal, 16)
 
-            if settings.engine == .parakeet || settings.compareMode {
-                Section {
-                    LabeledContent("Parakeet models") {
+                if settings.engine == .parakeet {
+                    Divider()
+                        .padding(.horizontal, 16)
+
+                    HStack(spacing: 14) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, alignment: .center)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Parakeet Model")
+                                .font(.subheadline.weight(.medium))
+                            Text("NVIDIA Parakeet TDT CTC 110M · ~470 MB")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                         if parakeetOnDisk {
                             Label("Installed", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
-                                .font(.footnote)
+                                .font(.subheadline)
                         } else {
-                            Button(isPreloading ? "Downloading…" : "Download (~470 MB)") {
+                            Button(isPreloading ? "Downloading…" : "Download") {
                                 downloadParakeet()
                             }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                             .disabled(isPreloading)
                         }
                     }
-                } header: {
-                    Text("Downloads")
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
                 }
             }
+            .padding(.bottom, 20)
         }
-        .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -524,82 +656,98 @@ private struct InlineCleanupSettings: View {
     @State private var isResolvingGeminiModel = false
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Clean up transcripts", isOn: $settings.cleanupEnabled)
-                if settings.cleanupEnabled {
-                    Toggle("Smart cleanup (on-device AI)", isOn: $settings.smartCleanup)
-                        .disabled(!FoundationModelFormatter.isAvailable)
-                    if let reason = FoundationModelFormatter.unavailableReason {
-                        Text(reason)
+        ScrollView {
+            VStack(spacing: 0) {
+                Text("Enhancement")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+
+                VStack(spacing: 10) {
+                    enhancementCard(
+                        mode: .off,
+                        icon: "circle.slash",
+                        title: "Off",
+                        subtitle: "Raw transcription only.",
+                        bullets: ["No AI processing", "Fastest, zero extra latency", "Dictionary corrections still apply"]
+                    )
+                    enhancementCard(
+                        mode: .local,
+                        icon: "cpu",
+                        title: "On-device AI",
+                        subtitle: "Apple Intelligence improves grammar and clarity.",
+                        bullets: ["Completely private — nothing leaves your Mac", "No API key required"],
+                        isAvailable: FoundationModelFormatter.isAvailable,
+                        unavailableReason: FoundationModelFormatter.unavailableReason
+                    )
+                    enhancementCard(
+                        mode: .cloud,
+                        icon: "cloud",
+                        title: "Cloud AI",
+                        subtitle: "Sends text to an AI provider for enhancement.",
+                        bullets: ["Most powerful rewriting", "Sensitive data auto-redacted before sending", "Requires an API key"]
+                    )
+                }
+                .padding(.horizontal, 16)
+
+                if settings.enhancementMode == .cloud {
+                    cloudConfigSection
+                        .padding(.top, 12)
+                }
+
+                Divider()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+
+                Text("Cleanup")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 8)
+
+                Toggle(isOn: $settings.cleanupEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Clean up transcripts")
+                            .font(.subheadline.weight(.medium))
+                        Text("Strips filler words, fixes spacing and punctuation.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("Strips fillers, fixes spacing and punctuation. Dictionary corrections run either way.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Cleanup")
-            }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
 
-            Section {
-                Picker("Mode", selection: $settings.enhancementMode) {
-                    ForEach(EnhancementMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
+                if settings.cleanupEnabled {
+                    Divider().padding(.leading, 20)
+                    Toggle(isOn: $settings.smartCleanup) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Smart cleanup")
+                                .font(.subheadline.weight(.medium))
+                            Text("Uses on-device AI to clean up rather than fixed rules.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
+                    .disabled(!FoundationModelFormatter.isAvailable)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
 
-                switch settings.enhancementMode {
-                case .off:
-                    Text("No enhancement — only cleanup and dictionary corrections apply.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                case .local:
-                    Text("Uses Apple Intelligence to improve grammar, structure, and clarity. Runs entirely on-device.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    if !FoundationModelFormatter.isAvailable, let reason = FoundationModelFormatter.unavailableReason {
-                        Label(reason, systemImage: "exclamationmark.triangle.fill")
+                    if let reason = FoundationModelFormatter.unavailableReason, !FoundationModelFormatter.isAvailable {
+                        Text(reason)
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 8)
                     }
-
-                case .cloud:
-                    Picker("Provider", selection: $settings.cloudProvider) {
-                        ForEach(CloudProviderChoice.allCases, id: \.self) { p in
-                            Text(p.displayName).tag(p)
-                        }
-                    }
-                    SecureField("API Key", text: apiKeyBinding)
-                        .textFieldStyle(.roundedBorder)
-                    if settings.cloudProvider == .gemini && !apiKey.isEmpty {
-                        LabeledContent("Model") {
-                            if isResolvingGeminiModel {
-                                HStack(spacing: 6) {
-                                    ProgressView().controlSize(.mini)
-                                    Text("Detecting…").foregroundStyle(.secondary)
-                                }
-                            } else if !geminiModelLabel.isEmpty {
-                                Text(geminiModelLabel).foregroundStyle(.secondary)
-                            }
-                        }
-                        .font(.footnote)
-                    }
-                    Label(
-                        "Your transcribed text is sent to \(settings.cloudProvider.displayName). Sensitive data is detected and redacted before sending; you'll confirm before any redacted text leaves this Mac.",
-                        systemImage: "network"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("Enhancement")
             }
+            .padding(.bottom, 20)
         }
-        .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             apiKey = KeychainStore.load(forKey: settings.cloudProvider.keychainKey) ?? ""
@@ -617,6 +765,135 @@ private struct InlineCleanupSettings: View {
             isResolvingGeminiModel = false
             geminiModelLabel = model
         }
+    }
+
+    @ViewBuilder
+    private var cloudConfigSection: some View {
+        VStack(spacing: 0) {
+            Picker("Provider", selection: $settings.cloudProvider) {
+                ForEach(CloudProviderChoice.allCases, id: \.self) { p in
+                    Text(p.displayName).tag(p)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+
+            SecureField("API Key", text: apiKeyBinding)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+
+            if settings.cloudProvider == .gemini && !apiKey.isEmpty {
+                HStack {
+                    Text("Model")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if isResolvingGeminiModel {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text("Detecting…").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if !geminiModelLabel.isEmpty {
+                        Text(geminiModelLabel).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "network")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 1)
+                Text("Your transcribed text is sent to \(settings.cloudProvider.displayName). Sensitive data is detected and redacted before sending; you'll confirm before any redacted text leaves this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+        }
+        .background(.background.secondary, in: .rect(cornerRadius: 12))
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private func enhancementCard(
+        mode: EnhancementMode,
+        icon: String,
+        title: String,
+        subtitle: String,
+        bullets: [String],
+        isAvailable: Bool = true,
+        unavailableReason: String? = nil
+    ) -> some View {
+        let isSelected = settings.enhancementMode == mode
+
+        Button {
+            guard isAvailable else { return }
+            settings.enhancementMode = mode
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 28, alignment: .center)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                        if !isAvailable {
+                            Text("Unavailable")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.secondary.opacity(0.15), in: .capsule)
+                        }
+                        Spacer()
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 17))
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.35))
+                    }
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let reason = unavailableReason, !isAvailable {
+                        Label(reason, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(bullets, id: \.self) { CardBullet(text: $0, isPositive: true) }
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(
+                            isSelected ? Color.accentColor : Color.primary.opacity(0.12),
+                            lineWidth: isSelected ? 1.5 : 1
+                        )
+                )
+        )
+        .opacity(isAvailable ? 1 : 0.6)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 
     private var apiKeyBinding: Binding<String> {

@@ -34,7 +34,8 @@ struct DictionaryPanel: View {
                             onDelete: { withAnimation { store.delete(entry) } }
                         )
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
@@ -122,38 +123,50 @@ private struct DictionaryRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(entry.isEnabled ? Color.green : Color.secondary.opacity(0.3))
-                .frame(width: 7, height: 7)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                kindBadge
 
-            kindBadge
+                if entry.kind == .correction {
+                    HStack(spacing: 6) {
+                        Text(entry.hear)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.tertiary)
+                        Text(entry.write)
+                            .font(.body.weight(.medium))
+                    }
+                } else {
+                    Text(entry.write)
+                        .font(.body)
+                }
 
-            if entry.kind == .correction {
-                Text(entry.hear)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                Image(systemName: "arrow.right")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                Spacer()
+
+                if isHovering {
+                    HStack(spacing: 4) {
+                        dictActionPill("Edit", icon: "pencil") { onEdit() }
+                        dictActionPill(entry.isEnabled ? "Disable" : "Enable",
+                                      icon: entry.isEnabled ? "eye.slash" : "eye") { onToggle() }
+                        dictActionPill("Delete", icon: "trash", isDestructive: true) { onDelete() }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .trailing)))
+                }
+
+                Circle()
+                    .fill(entry.isEnabled ? Color.green : Color.secondary.opacity(0.3))
+                    .frame(width: 7, height: 7)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .opacity(entry.isEnabled ? 1 : 0.5)
 
-            Text(entry.write)
-                .font(entry.kind == .correction ? .body.weight(.semibold) : .body)
-                .foregroundStyle(.primary)
-
-            Spacer()
-
-            if isHovering {
-                actionButton("pencil", help: "Edit") { onEdit() }
-                actionButton(entry.isEnabled ? "eye.slash" : "eye",
-                             help: entry.isEnabled ? "Disable" : "Enable") { onToggle() }
-                actionButton("trash", help: "Delete", isDestructive: true) { onDelete() }
-            }
+            Divider()
         }
-        .opacity(entry.isEnabled ? 1 : 0.45)
-        .padding(12)
-        .background(.background.secondary, in: .rect(cornerRadius: 10))
+        .background(isHovering ? Color.primary.opacity(0.03) : Color.clear)
+        .animation(.easeInOut(duration: 0.1), value: isHovering)
         .onHover { isHovering = $0 }
     }
 
@@ -170,22 +183,26 @@ private struct DictionaryRow: View {
             )
     }
 
-    private func actionButton(
-        _ icon: String,
-        help: String,
+    private func dictActionPill(
+        _ label: String,
+        icon: String,
         isDestructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(isDestructive ? Color.red.opacity(0.75) : Color.primary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .glassEffect(in: .capsule)
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .bold))
+                Text(label)
+                    .font(.caption2.weight(.medium))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .foregroundStyle(isDestructive ? Color.red.opacity(0.75) : Color.primary)
+            .glassEffect(in: .capsule)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help(label)
     }
 }
 
