@@ -181,6 +181,67 @@ final class ComparisonWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
+// MARK: - Onboarding Window Controller
+
+@MainActor
+final class OnboardingWindowController: NSWindowController {
+    private weak var appDelegate: AppDelegate?
+
+    init(appDelegate: AppDelegate, controller: DictationController) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "Welcome"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isRestorable = false
+        window.isMovableByWindowBackground = true
+
+        controller.hotkeyBlocked = true
+
+        self.appDelegate = appDelegate
+        super.init(window: window)
+
+        window.contentView = NSHostingView(
+            rootView: OnboardingView(
+                onFinish: { [weak self] in
+                    Settings.shared.firstLaunch = false
+                    controller.hotkeyBlocked = false
+                    self?.closeOnboarding(openSettings: false)
+                },
+                onOpenSettings: { [weak self] in
+                    Settings.shared.firstLaunch = false
+                    controller.hotkeyBlocked = false
+                    self?.closeOnboarding(openSettings: true)
+                },
+                onDemoStepsReached: {
+                    controller.hotkeyBlocked = false
+                }
+            )
+        )
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func showAndActivate() {
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+    }
+
+    private func closeOnboarding(openSettings: Bool) {
+        window?.close()
+        appDelegate?.windowBecameHidden()
+        if openSettings {
+            MainWindowController.shared?.showAndActivate()
+        }
+    }
+}
+
 // MARK: - App Delegate
 
 @MainActor
@@ -188,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = DictationController()
     private(set) var mainWindowController: MainWindowController?
     private var comparisonWindowController: ComparisonWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var hud: HUDPanel?
 
     // MARK: - Activation policy
@@ -254,6 +316,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeState()
         monitorAccessibility()
         Log.app.info("OpenFlow Voice ready — hold \(Settings.shared.pushToTalkKey.displayName) to dictate")
+
+        #if DEBUG
+        let shouldOnboard = true
+        #else
+        let shouldOnboard = Settings.shared.firstLaunch
+        #endif
+        if shouldOnboard {
+            onboardingWindowController = OnboardingWindowController(appDelegate: self, controller: controller)
+            onboardingWindowController?.showAndActivate()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

@@ -55,6 +55,7 @@ final class DictationController {
 
     private(set) var isHandsFree = false
     private(set) var state: State = .idle
+    var hotkeyBlocked = false
     /// Live transcript, updated as the engine revises it. Drives the HUD.
     private(set) var transcript = ""
     /// Per-band mel spectrum levels (0…1) for the waveform; 10 bands, envelope-followed.
@@ -108,7 +109,7 @@ final class DictationController {
     func activate() {
         let monitor = HotkeyMonitor.shared
         monitor.onPress = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.hotkeyBlocked else { return }
             if self.isHandsFree {
                 self.isHandsFree = false
                 self.endDictation()
@@ -117,10 +118,13 @@ final class DictationController {
             }
         }
         monitor.onRelease = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.hotkeyBlocked else { return }
             if !self.isHandsFree { self.endDictation() }
         }
-        monitor.onDoubleTap = { [weak self] in self?.beginHandsFreeMode() }
+        monitor.onDoubleTap = { [weak self] in
+            guard let self, !self.hotkeyBlocked else { return }
+            self.beginHandsFreeMode()
+        }
         let ok = monitor.start(key: Settings.shared.pushToTalkKey)
         if !ok {
             Log.hotkey.error("couldn't install event tap — Accessibility permission missing?")

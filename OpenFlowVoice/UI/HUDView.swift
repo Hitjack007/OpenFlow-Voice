@@ -58,6 +58,7 @@ private struct NoTargetView: View {
     let text: String
     let controller: DictationController
     @State private var copied = false
+    @State private var timeLeft: Int = 8
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -74,6 +75,11 @@ private struct NoTargetView: View {
                     .foregroundStyle(.white.opacity(0.4))
 
                 Spacer()
+
+                Text("\(timeLeft)s")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .monospacedDigit()
 
                 Button {
                     NSPasteboard.general.clearContents()
@@ -101,6 +107,13 @@ private struct NoTargetView: View {
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(white: 0.06))
+        }
+        .task {
+            while timeLeft > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                timeLeft -= 1
+            }
+            controller.dismissNoTarget()
         }
     }
 }

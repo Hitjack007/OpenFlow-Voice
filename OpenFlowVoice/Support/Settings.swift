@@ -97,6 +97,10 @@ final class Settings {
         didSet { defaults.set(excludedBundleIDs, forKey: Keys.excludedBundleIDs) }
     }
 
+    var firstLaunch: Bool {
+        didSet { defaults.set(firstLaunch, forKey: Keys.firstLaunch) }
+    }
+
     private let defaults = UserDefaults.standard
 
     private enum Keys {
@@ -109,6 +113,7 @@ final class Settings {
         static let enhancementMode  = "enhancementMode"
         static let cloudProvider    = "cloudProvider"
         static let excludedBundleIDs = "excludedBundleIDs"
+        static let firstLaunch       = "firstLaunch"
     }
 
     private init() {
@@ -125,5 +130,6 @@ final class Settings {
         enhancementMode  = EnhancementMode(rawValue: defaults.string(forKey: Keys.enhancementMode) ?? "") ?? .off
         cloudProvider    = CloudProviderChoice(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .claude
         excludedBundleIDs = defaults.stringArray(forKey: Keys.excludedBundleIDs) ?? []
+        firstLaunch = defaults.object(forKey: Keys.firstLaunch) as? Bool ?? true
     }
 }
