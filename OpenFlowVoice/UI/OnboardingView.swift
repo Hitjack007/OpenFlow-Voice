@@ -5,6 +5,7 @@ import AppKit
 
 enum OnboardingStep: Hashable {
     case welcome, microphone, accessibility, engine, enhancement, hotkey
+    case appExclusions
     case demoText, demoHUD, demoPrivacy
     case finished
 }
@@ -63,7 +64,16 @@ struct OnboardingView: View {
                     .transition(.opacity)
 
             case .hotkey:
-                OnboardingHotkeyView { advance(to: .demoText) }
+                OnboardingHotkeyView { key in
+                    let isOption = key == .leftOption || key == .rightOption
+                    let next: OnboardingStep = isOption && !OnboardingAppExclusionsView.installedOptionKeyApps().isEmpty
+                        ? .appExclusions : .demoText
+                    advance(to: next)
+                }
+                .transition(.opacity)
+
+            case .appExclusions:
+                OnboardingAppExclusionsView { advance(to: .demoText) }
                     .transition(.opacity)
 
             case .demoText:
@@ -386,7 +396,7 @@ private struct OnboardingHotkeyView: View {
     @State private var selected: PushToTalkKey = Settings.shared.pushToTalkKey
     @State private var isListening = false
     @State private var eventMonitor: Any?
-    let onContinue: () -> Void
+    let onContinue: (PushToTalkKey) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -441,7 +451,7 @@ private struct OnboardingHotkeyView: View {
                 Settings.shared.pushToTalkKey = selected
                 stopListening()
                 HotkeyMonitor.shared.start(key: selected)
-                onContinue()
+                onContinue(selected)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -648,6 +658,154 @@ private struct OnboardingOptionCard: View {
         .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 }
+
+// MARK: - App Exclusions
+
+private struct AppEntry: Identifiable {
+    let id = UUID()
+    let name: String
+    let bundleID: String
+    let icon: NSImage
+}
+
+private struct OnboardingAppExclusionsView: View {
+    let onContinue: () -> Void
+
+    @State private var apps: [AppEntry] = []
+    @State private var selected: Set<String> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "app.badge.checkmark")
+                .font(.system(size: 52, weight: .ultraLight))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 36)
+                .padding(.bottom, 20)
+
+            Text("Protect App Shortcuts")
+                .font(.title2.weight(.semibold))
+                .padding(.bottom, 8)
+
+            Text("These apps use ⌥ for their own shortcuts. When one of them is frontmost, your push-to-talk key passes through normally.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 12)
+
+            HStack {
+                Spacer()
+                Button(selected.count == apps.count ? "Deselect All" : "Select All") {
+                    if selected.count == apps.count {
+                        selected.removeAll()
+                    } else {
+                        selected = Set(apps.map(\.bundleID))
+                    }
+                }
+                .font(.caption)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 4)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(apps) { app in
+                        Toggle(isOn: Binding(
+                            get: { selected.contains(app.bundleID) },
+                            set: { on in
+                                if on { selected.insert(app.bundleID) }
+                                else { selected.remove(app.bundleID) }
+                            }
+                        )) {
+                            HStack(spacing: 10) {
+                                Image(nsImage: app.icon)
+                                    .resizable()
+                                    .frame(width: 20, height: 20)
+                                Text(app.name)
+                                    .font(.body)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 7)
+
+                        if app.id != apps.last?.id {
+                            Divider().padding(.horizontal, 28)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+
+            Button(selected.isEmpty ? "Continue" : "Add \(selected.count) App\(selected.count == 1 ? "" : "s")") {
+                for bundleID in selected where !Settings.shared.excludedBundleIDs.contains(bundleID) {
+                    Settings.shared.excludedBundleIDs.append(bundleID)
+                }
+                onContinue()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.top, 16)
+            .padding(.bottom, 28)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(OnboardingBackground())
+        .onAppear {
+            apps = Self.installedOptionKeyApps()
+            selected = Set(apps.map(\.bundleID))
+        }
+    }
+
+    @MainActor
+    static func installedOptionKeyApps() -> [AppEntry] {
+        let candidates: [(String, String)] = [
+            ("Adobe Photoshop",         "com.adobe.Photoshop"),
+            ("Adobe Illustrator",       "com.adobe.Illustrator"),
+            ("Adobe InDesign",          "com.adobe.InDesign"),
+            ("Adobe Premiere Pro",      "com.adobe.PremierePro"),
+            ("Adobe After Effects",     "com.adobe.AfterEffects"),
+            ("Adobe Lightroom Classic", "com.adobe.LightroomClassicCC7"),
+            ("Affinity Photo",          "com.seriflabs.affinityphoto"),
+            ("Affinity Designer",       "com.seriflabs.affinitydesigner2"),
+            ("Affinity Publisher",      "com.seriflabs.affinitypublisher2"),
+            ("Sketch",                  "com.bohemiancoding.sketch3"),
+            ("Figma",                   "com.figma.Desktop"),
+            ("Pixelmator Pro",          "com.pixelmatorteam.pixelmator.x"),
+            ("Final Cut Pro",           "com.apple.FinalCut"),
+            ("Logic Pro",               "com.apple.logic10"),
+            ("DaVinci Resolve",         "com.blackmagic-design.DaVinciResolve"),
+            ("Blender",                 "org.blenderfoundation.blender"),
+            ("OmniGraffle",             "com.omnigroup.OmniGraffle7"),
+            ("Xcode",                   "com.apple.dt.Xcode"),
+            ("BBEdit",                  "com.barebones.bbedit"),
+            ("Sublime Text",            "com.sublimetext.4"),
+            ("Visual Studio Code",      "com.microsoft.VSCode"),
+            ("iTerm2",                  "com.googlecode.iterm2"),
+            ("Terminal",                "com.apple.Terminal"),
+            ("Finder",                  "com.apple.finder"),
+            ("Safari",                  "com.apple.Safari"),
+            ("Slack",                   "com.tinyspeck.slackmacgap"),
+            ("Keynote",                 "com.apple.iWork.Keynote"),
+            ("Pages",                   "com.apple.iWork.Pages"),
+            ("Numbers",                 "com.apple.iWork.Numbers"),
+            ("Preview",                 "com.apple.Preview"),
+            ("Mail",                    "com.apple.mail"),
+            ("Calendar",                "com.apple.iCal"),
+            ("Notes",                   "com.apple.Notes"),
+        ]
+        return candidates.compactMap { name, bundleID in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            return AppEntry(name: name, bundleID: bundleID, icon: icon)
+        }
+    }
+}
+
+// MARK: -
 
 private struct OnboardingCardBullet: View {
     let text: String
