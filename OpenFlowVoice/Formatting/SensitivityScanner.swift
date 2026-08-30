@@ -2,12 +2,13 @@ import Foundation
 
 struct SensitiveMatch: Equatable, Sendable {
     enum Kind: String, CaseIterable, Equatable, Hashable, Sendable {
-        case pin, password, creditCard, ssn, phoneNumber, apiKey
+        case pin, password, email, creditCard, ssn, phoneNumber, apiKey
 
         var displayName: String {
             switch self {
             case .pin:         "PIN / passcode"
             case .password:    "Password"
+            case .email:       "Email address"
             case .creditCard:  "Credit card number"
             case .ssn:         "Social Security Number"
             case .phoneNumber: "Phone number"
@@ -76,22 +77,39 @@ enum SensitivityScanner {
             }
             return RulePattern(kind: kind, regex: re, captureGroup: group)
         }
-        // Matches spoken number words like "one two three four" or "one, two, three, four"
+
+        // Spoken digit words: "one two three four" or "one, two, three, four"
         let spokenDigits = #"(?:zero|one|two|three|four|five|six|seven|eight|nine)(?:[,\s]+(?:zero|one|two|three|four|five|six|seven|eight|nine)){2,7}"#
 
+        // Bridges between a keyword and its value in natural speech.
+        // Alternative 1: up to 8 non-"is" words then mandatory "is"  → "password to the door is 1234"
+        // Alternative 2: direct, with optional "is"                   → "password is 1234" / "password 1234"
+        let gap = #"(?:(?:\s+(?!is\b)\w+){1,8}\s+is\s+|\s+(?:is\s+)?)"#
+
         return [
-            // PIN / passcode: digit string OR spoken digits (e.g. "one two three four")
-            rule(.pin,         #"(?:pin|passcode|pass\s+code|security\s+code|access\s+code)\s+(?:is\s+)?(\d{4,8}|\#(spokenDigits))"#),
-            // Password: single alphanumeric token OR spoken digit sequence
-            rule(.password,    #"(?:password|passwd)\s+(?:is\s+)?([A-Za-z0-9!@#$%^&*\-_\.]{4,}|\#(spokenDigits))"#),
+            // PIN / passcode — broad keyword set, up to 8 intervening words
+            rule(.pin, #"(?:pin(?:\s*code)?|passcode|pass\s*code|security\s*code|access\s*code|door\s*code|gate\s*code|entry\s*code|lock\s*code|combination)\#(gap)(\d{4,8}|\#(spokenDigits))"#),
+
+            // Password — broad keyword set, up to 8 intervening words
+            rule(.password, #"(?:password|passwd|passphrase|pass\s*phrase)\#(gap)([A-Za-z0-9!@#$%^&*\-_\.]{4,}|\#(spokenDigits))"#),
+
+            // Email address — structural; @ makes these highly distinctive without needing a keyword
+            rule(.email, #"(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)"#),
+
             // 16-digit credit card (optional spaces or dashes between groups)
-            rule(.creditCard,  #"(\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b)"#, group: 1),
+            rule(.creditCard, #"(\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b)"#),
+
             // SSN: 000-00-0000
-            rule(.ssn,         #"(\b\d{3}[\s\-]\d{2}[\s\-]\d{4}\b)"#,               group: 1),
-            // US phone numbers
-            rule(.phoneNumber, #"(\b(?:\+?1[\s\-\.]?)?\(?\d{3}\)?[\s\-\.]?\d{3}[\s\-\.]?\d{4}\b)"#, group: 1),
-            // API key / token / secret after a keyword
-            rule(.apiKey,      #"(?:api[\s_-]?key|token|secret|bearer)\s+(?:is\s+)?([A-Za-z0-9_\-\.]{20,})"#),
+            rule(.ssn, #"(\b\d{3}[\s\-]\d{2}[\s\-]\d{4}\b)"#),
+
+            // Phone numbers — structural US/international match
+            rule(.phoneNumber, #"(\b(?:\+?1[\s\-\.]?)?\(?\d{3}\)?[\s\-\.]?\d{3}[\s\-\.]?\d{4}\b)"#),
+
+            // Phone numbers — keyword-triggered for looser spoken forms ("my number is 555 1234567")
+            rule(.phoneNumber, #"(?:phone(?:\s*number)?|cell(?:\s*phone)?|mobile|contact(?:\s*number)?|number)\#(gap)(\+?[\d][\d\s\-\.\(\)]{6,18}[\d])"#),
+
+            // API key / token / secret — broad keyword set, up to 8 intervening words
+            rule(.apiKey, #"(?:api[\s_\-]?key|token|secret|bearer|auth(?:entication)?\s*(?:key|token)?|private\s*key)\#(gap)([A-Za-z0-9_\-\.]{20,})"#),
         ].compactMap { $0 }
     }
 }

@@ -6,7 +6,7 @@ import AppKit
 enum OnboardingStep: Hashable {
     case welcome, microphone, accessibility, engine, enhancement, hotkey
     case appExclusions
-    case demoText, demoHUD, demoPrivacy
+    case demoText, demoHUD, demoFreeMode, demoPrivacy
     case finished
 }
 
@@ -91,6 +91,17 @@ struct OnboardingView: View {
                     icon: Image(systemName: "bubble.left"),
                     title: "No text field? No problem.",
                     description: "Hold \(Settings.shared.pushToTalkKey.displayName) anywhere without a text field focused. A small HUD appears with what you said — copy it to the clipboard, or it auto-dismisses after a few seconds.",
+                    buttonLabel: "Next"
+                ) {
+                    advance(to: .demoFreeMode)
+                }
+                .transition(.opacity)
+
+            case .demoFreeMode:
+                OnboardingDemoView(
+                    icon: Image(systemName: "hand.tap"),
+                    title: "Hands-Free Mode",
+                    description: "Double-tap \(Settings.shared.pushToTalkKey.displayName) to start dictating without holding the key. Tap once more when you're done.\n\nTap, pause briefly, then tap again — it's a deliberate double-tap, not a rapid double-click.",
                     buttonLabel: "Next"
                 ) {
                     let next: OnboardingStep = Settings.shared.enhancementMode == .cloud ? .demoPrivacy : .finished
@@ -402,6 +413,7 @@ private struct OnboardingEnhancementView: View {
 private struct OnboardingHotkeyView: View {
     @State private var selected: PushToTalkKey = Settings.shared.pushToTalkKey
     @State private var isListening = false
+    @State private var hasSelected = false
     @State private var eventMonitor: Any?
     let onContinue: (PushToTalkKey) -> Void
 
@@ -462,6 +474,7 @@ private struct OnboardingHotkeyView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(!hasSelected)
             .padding(.bottom, 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -480,6 +493,7 @@ private struct OnboardingHotkeyView: View {
             let code = Int64(event.keyCode)
             if let matched = PushToTalkKey.allCases.first(where: { $0.keyCode == code }) {
                 selected = matched
+                hasSelected = true
                 stopListening()
             }
             return event
