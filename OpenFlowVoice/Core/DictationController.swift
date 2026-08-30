@@ -324,11 +324,15 @@ final class DictationController {
                 return
             }
 
+            // Short utterances skip both LLM passes — the model startup cost (~1-4s) is
+            // never worth it for a single word or brief phrase that rule-based cleanup handles well.
+            let isShort = raw.split(whereSeparator: \.isWhitespace).count <= 10
+
             let cleaned = Settings.shared.cleanupEnabled
-                ? await activeFormatter.format(raw)
+                ? await (isShort ? RuleBasedFormatter() : activeFormatter).format(raw)
                 : raw
 
-            let enhanced = await runEnhancement(cleaned, rawTranscript: raw)
+            let enhanced = isShort ? cleaned : await runEnhancement(cleaned, rawTranscript: raw)
 
             // The dictionary runs last, and runs regardless of the cleanup setting. Biasing
             // only raises the odds of the right word; this is the pass that guarantees it,
