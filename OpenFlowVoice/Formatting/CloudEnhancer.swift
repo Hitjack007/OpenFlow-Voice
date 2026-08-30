@@ -29,8 +29,11 @@ private let enhancementSystemPrompt = """
     """
 
 enum CloudEnhancer {
-    // Cached best flash model — starts with a safe default, updated by resolveGeminiModel.
+    // Cached resolved models — start with safe defaults, updated by the resolve* functions.
     // nonisolated(unsafe): concurrent writes of the same String value are benign.
+    nonisolated(unsafe) private(set) static var resolvedClaudeModel = "claude-haiku-4-5-20251001"
+    nonisolated(unsafe) private(set) static var resolvedOpenAIModel = "gpt-4o-mini"
+    nonisolated(unsafe) private(set) static var resolvedGroqModel   = "llama-3.1-8b-instant"
     nonisolated(unsafe) private(set) static var resolvedGeminiModel = "gemini-2.0-flash"
 
     /// Polls the Gemini Models API and returns the highest-versioned stable flash model
@@ -79,6 +82,65 @@ enum CloudEnhancer {
         return resolvedGeminiModel
     }
 
+    @discardableResult
+    static func resolveClaudeModel(apiKey: String) async -> String {
+        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/models")!)
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["data"] as? [[String: Any]] else {
+            return resolvedClaudeModel
+        }
+        // Anthropic returns models newest-first; take the first haiku model.
+        if let id = models
+            .first(where: { ($0["id"] as? String)?.contains("haiku") == true })?["id"] as? String {
+            resolvedClaudeModel = id
+            Log.speech.info("Claude model resolved to: \(id, privacy: .public)")
+        }
+        return resolvedClaudeModel
+    }
+
+    @discardableResult
+    static func resolveOpenAIModel(apiKey: String) async -> String {
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/models")!)
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["data"] as? [[String: Any]] else {
+            return resolvedOpenAIModel
+        }
+        // Newest gpt-4o-mini variant by creation timestamp.
+        if let id = models
+            .filter({ ($0["id"] as? String)?.hasPrefix("gpt-4o-mini") == true })
+            .max(by: { ($0["created"] as? Int ?? 0) < ($1["created"] as? Int ?? 0) })
+            .flatMap({ $0["id"] as? String }) {
+            resolvedOpenAIModel = id
+            Log.speech.info("OpenAI model resolved to: \(id, privacy: .public)")
+        }
+        return resolvedOpenAIModel
+    }
+
+    @discardableResult
+    static func resolveGroqModel(apiKey: String) async -> String {
+        var req = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/models")!)
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["data"] as? [[String: Any]] else {
+            return resolvedGroqModel
+        }
+        // Newest "instant" (low-latency) model by creation timestamp.
+        if let id = models
+            .filter({ ($0["id"] as? String)?.contains("instant") == true })
+            .max(by: { ($0["created"] as? Int ?? 0) < ($1["created"] as? Int ?? 0) })
+            .flatMap({ $0["id"] as? String }) {
+            resolvedGroqModel = id
+            Log.speech.info("Groq model resolved to: \(id, privacy: .public)")
+        }
+        return resolvedGroqModel
+    }
+
     static func enhance(_ text: String, provider: CloudProviderChoice) async throws -> String {
         guard let apiKey = KeychainStore.load(forKey: provider.keychainKey), !apiKey.isEmpty else {
             throw CloudEnhancementError.noApiKey(provider)
@@ -89,10 +151,10 @@ enum CloudEnhancer {
             return try await claudeRequest(prompt: prompt, apiKey: apiKey)
         case .openai:
             return try await openaiCompatible(prompt: prompt, apiKey: apiKey,
-                baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini")
+                baseURL: "https://api.openai.com/v1", model: resolvedOpenAIModel)
         case .groq:
             return try await openaiCompatible(prompt: prompt, apiKey: apiKey,
-                baseURL: "https://api.groq.com/openai/v1", model: "llama-3.1-8b-instant")
+                baseURL: "https://api.groq.com/openai/v1", model: resolvedGroqModel)
         case .gemini:
             return try await geminiRequest(prompt: prompt, apiKey: apiKey)
         }
@@ -108,7 +170,7 @@ enum CloudEnhancer {
         req.setValue("2023-06-01",  forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": "claude-haiku-4-5-20251001",
+            "model": resolvedClaudeModel,
             "max_tokens": 1_200,
             "system": enhancementSystemPrompt,
             "messages": [["role": "user", "content": prompt]],

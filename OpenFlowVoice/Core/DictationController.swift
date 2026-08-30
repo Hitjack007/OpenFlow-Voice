@@ -438,6 +438,7 @@ final class DictationController {
 
             if allKinds.isEmpty {
                 // No sensitive data found in either scan — send directly to cloud.
+                state = .enhancing
                 do {
                     return try await CloudEnhancer.enhance(text, provider: provider)
                 } catch {

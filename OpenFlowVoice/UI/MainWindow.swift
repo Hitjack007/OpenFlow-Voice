@@ -756,14 +756,26 @@ private struct InlineCleanupSettings: View {
             apiKey = KeychainStore.load(forKey: settings.cloudProvider.keychainKey) ?? ""
         }
         .task(id: settings.cloudProvider.rawValue + apiKey) {
-            guard settings.cloudProvider == .gemini, !apiKey.isEmpty else {
+            guard !apiKey.isEmpty else {
                 geminiModelLabel = ""
                 return
             }
-            isResolvingGeminiModel = true
-            let model = await CloudEnhancer.resolveGeminiModel(apiKey: apiKey)
-            isResolvingGeminiModel = false
-            geminiModelLabel = model
+            switch settings.cloudProvider {
+            case .gemini:
+                isResolvingGeminiModel = true
+                let model = await CloudEnhancer.resolveGeminiModel(apiKey: apiKey)
+                isResolvingGeminiModel = false
+                geminiModelLabel = model
+            case .claude:
+                geminiModelLabel = ""
+                await CloudEnhancer.resolveClaudeModel(apiKey: apiKey)
+            case .openai:
+                geminiModelLabel = ""
+                await CloudEnhancer.resolveOpenAIModel(apiKey: apiKey)
+            case .groq:
+                geminiModelLabel = ""
+                await CloudEnhancer.resolveGroqModel(apiKey: apiKey)
+            }
         }
     }
 

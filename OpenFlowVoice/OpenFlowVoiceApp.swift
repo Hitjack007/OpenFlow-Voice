@@ -306,6 +306,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        Task.detached(priority: .utility) {
+            for provider in CloudProviderChoice.allCases {
+                guard let key = KeychainStore.load(forKey: provider.keychainKey), !key.isEmpty else { continue }
+                switch provider {
+                case .claude:  await CloudEnhancer.resolveClaudeModel(apiKey: key)
+                case .openai:  await CloudEnhancer.resolveOpenAIModel(apiKey: key)
+                case .groq:    await CloudEnhancer.resolveGroqModel(apiKey: key)
+                case .gemini:  await CloudEnhancer.resolveGeminiModel(apiKey: key)
+                }
+            }
+        }
+
         if UserDefaults.standard.bool(forKey: "comparisonWindowOpen") {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(400))
