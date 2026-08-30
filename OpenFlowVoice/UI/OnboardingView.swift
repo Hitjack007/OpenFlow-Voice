@@ -440,6 +440,7 @@ private struct OnboardingHotkeyView: View {
             Button("Continue") {
                 Settings.shared.pushToTalkKey = selected
                 stopListening()
+                HotkeyMonitor.shared.start(key: selected)
                 onContinue()
             }
             .buttonStyle(.borderedProminent)
@@ -454,6 +455,9 @@ private struct OnboardingHotkeyView: View {
 
     private func startListening() {
         stopListening()
+        // Stop the CGEventTap so it can't consume modifier events before they
+        // reach the NSEvent local monitor (Left Option is consumed otherwise).
+        HotkeyMonitor.shared.stop()
         isListening = true
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             let code = Int64(event.keyCode)
