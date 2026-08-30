@@ -341,27 +341,34 @@ private struct OnboardingEnhancementView: View {
                     .padding(.horizontal, 20)
 
                     if mode == .cloud {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Picker("Provider", selection: $provider) {
-                                ForEach(CloudProviderChoice.allCases, id: \.self) { p in
-                                    Text(p.displayName).tag(p)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Provider")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Picker("Provider", selection: $provider) {
+                                    ForEach(CloudProviderChoice.allCases, id: \.self) { p in
+                                        Text(p.displayName).tag(p)
+                                    }
                                 }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
                             }
-                            .labelsHidden()
-                            .pickerStyle(.segmented)
 
-                            SecureField("API Key", text: $apiKey)
-                                .textFieldStyle(.roundedBorder)
-                                .onAppear {
-                                    apiKey = KeychainStore.load(forKey: provider.keychainKey) ?? ""
-                                }
-                                .onChange(of: provider) { _, p in
-                                    apiKey = KeychainStore.load(forKey: p.keychainKey) ?? ""
-                                }
+                            ApiKeyField(provider: provider, text: $apiKey)
                         }
+                        .padding(16)
+                        .background(.background.secondary, in: .rect(cornerRadius: 12))
                         .padding(.horizontal, 20)
                         .padding(.top, 14)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                        .onAppear {
+                            apiKey = KeychainStore.load(forKey: provider.keychainKey) ?? ""
+                        }
+                        .onChange(of: provider) { _, p in
+                            apiKey = KeychainStore.load(forKey: p.keychainKey) ?? ""
+                        }
                     }
 
                     Spacer().frame(height: 24)

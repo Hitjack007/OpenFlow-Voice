@@ -781,28 +781,31 @@ private struct InlineCleanupSettings: View {
 
     @ViewBuilder
     private var cloudConfigSection: some View {
-        VStack(spacing: 0) {
-            Picker("Provider", selection: $settings.cloudProvider) {
-                ForEach(CloudProviderChoice.allCases, id: \.self) { p in
-                    Text(p.displayName).tag(p)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Provider")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("Provider", selection: $settings.cloudProvider) {
+                    ForEach(CloudProviderChoice.allCases, id: \.self) { p in
+                        Text(p.displayName).tag(p)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
 
-            SecureField("API Key", text: apiKeyBinding)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+            ApiKeyField(provider: settings.cloudProvider, text: apiKeyBinding)
 
             if settings.cloudProvider == .gemini && !apiKey.isEmpty {
-                HStack {
+                HStack(spacing: 6) {
                     Text("Model")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     if isResolvingGeminiModel {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
                             ProgressView().controlSize(.mini)
                             Text("Detecting…").font(.caption).foregroundStyle(.secondary)
                         }
@@ -810,23 +813,20 @@ private struct InlineCleanupSettings: View {
                         Text(geminiModelLabel).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
             }
 
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "network")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .padding(.top, 1)
-                Text("Your transcribed text is sent to \(settings.cloudProvider.displayName). Sensitive data is detected and redacted before sending; you'll confirm before any redacted text leaves this Mac.")
+                Text("Text is sent to \(settings.cloudProvider.displayName). Sensitive data is redacted before sending; you'll confirm before anything leaves this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 14)
         }
+        .padding(16)
         .background(.background.secondary, in: .rect(cornerRadius: 12))
         .padding(.horizontal, 16)
     }
@@ -1169,6 +1169,53 @@ struct EmptyPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+}
+
+struct ApiKeyField: View {
+    let provider: CloudProviderChoice
+    @Binding var text: String
+    @State private var isRevealed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("API Key")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !text.isEmpty {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+                Spacer()
+                Link("Get key →", destination: provider.apiKeyURL)
+                    .font(.caption)
+            }
+
+            HStack(spacing: 4) {
+                Group {
+                    if isRevealed {
+                        TextField(provider.keyPlaceholder, text: $text)
+                    } else {
+                        SecureField(provider.keyPlaceholder, text: $text)
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+
+                Button {
+                    isRevealed.toggle()
+                } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .onChange(of: provider) { _, _ in isRevealed = false }
     }
 }
 

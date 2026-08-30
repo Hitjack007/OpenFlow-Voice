@@ -31,6 +31,24 @@ enum CloudProviderChoice: String, CaseIterable, Sendable {
     }
 
     var keychainKey: String { "apikey.\(rawValue)" }
+
+    var apiKeyURL: URL {
+        switch self {
+        case .claude:  URL(string: "https://console.anthropic.com/settings/keys")!
+        case .openai:  URL(string: "https://platform.openai.com/api-keys")!
+        case .gemini:  URL(string: "https://aistudio.google.com/app/apikey")!
+        case .groq:    URL(string: "https://console.groq.com/keys")!
+        }
+    }
+
+    var keyPlaceholder: String {
+        switch self {
+        case .claude:  "sk-ant-api03-..."
+        case .openai:  "sk-proj-..."
+        case .gemini:  "AIzaSy..."
+        case .groq:    "gsk_..."
+        }
+    }
 }
 
 /// Which speech engine transcribes an utterance.
