@@ -1,9 +1,12 @@
 import AppKit
+import Sparkle
 import SwiftUI
 
 @main
 struct OpenFlowVoiceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     var body: some Scene {
         // Status and the hotkey while you're working in another app.
@@ -11,7 +14,7 @@ struct OpenFlowVoiceApp: App {
         // All windows are managed manually via NSWindowController so we
         // own the activation-policy lifecycle without SwiftUI interference.
         MenuBarExtra {
-            MenuContent()
+            MenuContent(updater: updaterController.updater)
         } label: {
             Image(systemName: delegate.controller.state.isActive ? "waveform.circle.fill" : "waveform")
         }
@@ -418,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Menu Bar Content
 
 private struct MenuContent: View {
+    let updater: SPUUpdater
     @State private var settings = Settings.shared
 
     var body: some View {
@@ -427,6 +431,12 @@ private struct MenuContent: View {
 
         Button("Open OpenFlow Voice") {
             MainWindowController.shared?.showAndActivate()
+        }
+
+        Divider()
+
+        Button("Check for Updates…") {
+            updater.checkForUpdates()
         }
 
         Divider()

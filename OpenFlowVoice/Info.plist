@@ -41,5 +41,16 @@
 	<string>OpenFlow Voice listens while you hold the push-to-talk key so it can turn your speech into text.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>OpenFlow Voice transcribes your speech on-device to insert text where you're typing.</string>
+	<key>SUFeedURL</key>
+	<string>https://hitjack007.github.io/OpenFlow-Voice/appcast.xml</string>
+	<!-- Run generate_keys (Sparkle tool in DerivedData) and paste the public key below -->
+	<key>SUPublicEDKey</key>
+	<string>6xY6JsEkEG2HPn7hPwS457+wIYZ96Yc7NLR88xZsFPg=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUEnableDownloaderService</key>
+	<true/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
 </dict>
 </plist>

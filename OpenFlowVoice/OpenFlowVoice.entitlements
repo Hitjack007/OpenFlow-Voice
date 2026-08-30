@@ -11,5 +11,11 @@
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!-- Sparkle background XPC services: downloader (-spks) and installer launcher (-spki) -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.Hitjack007.OpenFlow-Voice-spks</string>
+		<string>com.Hitjack007.OpenFlow-Voice-spki</string>
+	</array>
 </dict>
 </plist>

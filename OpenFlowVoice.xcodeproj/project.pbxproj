@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4DD7809C303D43CA00C5B74D /* OpenFlowVoiceHelper.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = 4DD78091303D43CA00C5B74D /* OpenFlowVoiceHelper.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4DD7810E3043E14600C5B74D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4DD7810D3043E14600C5B74D /* Sparkle */; };
 		9E47531B25A0A2A04CEF93DE /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 6BFD874B507A0F1365B739E8 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
@@ -79,6 +80,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9E47531B25A0A2A04CEF93DE /* FluidAudio in Frameworks */,
+				4DD7810E3043E14600C5B74D /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,6 +150,7 @@
 			name = OpenFlowVoice;
 			packageProductDependencies = (
 				6BFD874B507A0F1365B739E8 /* FluidAudio */,
+				4DD7810D3043E14600C5B74D /* Sparkle */,
 			);
 			productName = OpenFlowVoice;
 			productReference = F9F4C5A61B2A2C1CA640A41C /* OpenFlowVoice.app */;
@@ -182,6 +185,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				9F53DA1168DC284F98FF4BE3 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				4DD7810C3043E14600C5B74D /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7D38528719A075FCB4FF7038 /* Products */;
@@ -508,6 +512,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		4DD7810C3043E14600C5B74D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.6;
+			};
+		};
 		9F53DA1168DC284F98FF4BE3 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
@@ -519,6 +531,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4DD7810D3043E14600C5B74D /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4DD7810C3043E14600C5B74D /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		6BFD874B507A0F1365B739E8 /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9F53DA1168DC284F98FF4BE3 /* XCRemoteSwiftPackageReference "FluidAudio" */;
