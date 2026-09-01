@@ -47,5 +47,18 @@
         type="application/octet-stream"/>
     </item>
 
+
+    <item>
+      <title>Version 1.1.1</title>
+      <pubDate>Tue, 01 Sep 2026 04:42:36 +0000</pubDate>
+      <sparkle:version>202609011639</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <enclosure
+        url="https://github.com/Hitjack007/OpenFlow-Voice/releases/download/v1.1.1/OpenFlowVoice-1.1.1.dmg"
+        sparkle:edSignature="LbOxSvNX9IgwhbAL7xPUdZga524LjLI75BPlDMuruUCSJbP+I3pyCMeqW11MRhKtRQB7LQes8B0H2J51NysTCw=="
+        length="20723553"
+        type="application/octet-stream"/>
+    </item>
+
   </channel>
 </rss>
