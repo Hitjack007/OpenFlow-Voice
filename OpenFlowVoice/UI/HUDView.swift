@@ -31,6 +31,9 @@ struct HUDView: View {
             } else if case .awaitingRetry(let text) = controller.state {
                 AwaitingRetryView(text: text, controller: controller)
                     .frame(maxHeight: .infinity, alignment: .bottom)
+            } else if case .awaitingNetworkFallback(let text) = controller.state {
+                AwaitingNetworkFallbackView(text: text, controller: controller)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             } else {
                 RecordingPill(controller: controller)
             }
@@ -247,6 +250,63 @@ private struct AwaitingRetryView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(width: 280)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.06))
+        }
+    }
+}
+
+private struct AwaitingNetworkFallbackView: View {
+    let text: String
+    let controller: DictationController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No network connection")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+
+            HStack(spacing: 6) {
+                Image(systemName: "wifi.slash")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.yellow.opacity(0.9))
+                Text("Cloud enhancement unavailable")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+
+            Text("Use on-device AI or skip enhancement?")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
+
+            HStack(spacing: 8) {
+                Button("Skip") {
+                    controller.resolveRetry(useLocal: false)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.12), in: Capsule())
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button("Use local AI") {
+                    controller.resolveRetry(useLocal: true)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Brand.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Brand.accent.opacity(0.15), in: Capsule())
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(width: 300)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(white: 0.06))

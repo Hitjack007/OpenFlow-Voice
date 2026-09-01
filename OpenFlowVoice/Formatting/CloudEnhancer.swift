@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 enum CloudEnhancementError: LocalizedError {
     case noApiKey(CloudProviderChoice)
@@ -139,6 +140,19 @@ enum CloudEnhancer {
             Log.speech.info("Groq model resolved to: \(id, privacy: .public)")
         }
         return resolvedGroqModel
+    }
+
+    /// Returns `true` if the device has a usable network path. Resolves immediately
+    /// from the current path status — no round-trip is made.
+    static func isNetworkAvailable() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { path in
+                monitor.cancel()
+                continuation.resume(returning: path.status == .satisfied)
+            }
+            monitor.start(queue: .global(qos: .utility))
+        }
     }
 
     static func enhance(_ text: String, provider: CloudProviderChoice) async throws -> String {

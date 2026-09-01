@@ -36,6 +36,8 @@ final class DictationController {
         case enhancing
         /// Cloud enhancement failed; HUD asks whether to retry with local AI.
         case awaitingRetry(text: String)
+        /// Network unavailable before attempting cloud; HUD asks whether to use local AI.
+        case awaitingNetworkFallback(text: String)
         case error(String)
 
         var isActive: Bool {
@@ -47,7 +49,7 @@ final class DictationController {
 
         var showsHUD: Bool {
             switch self {
-            case .starting, .listening, .finishing, .noTarget, .awaitingEnhancement, .enhancing, .awaitingRetry: true
+            case .starting, .listening, .finishing, .noTarget, .awaitingEnhancement, .enhancing, .awaitingRetry, .awaitingNetworkFallback: true
             case .idle, .error: false
             }
         }
@@ -425,6 +427,15 @@ final class DictationController {
                 Log.speech.info("Cloud enhancement: no API key for \(provider.rawValue, privacy: .public) — falling back to local")
                 state = .enhancing
                 return await FoundationModelFormatter.enhance(text)
+            }
+
+            guard await CloudEnhancer.isNetworkAvailable() else {
+                Log.speech.info("Cloud enhancement: no network — asking user for fallback preference")
+                let useLocal: Bool = await withCheckedContinuation { continuation in
+                    retryContinuation = continuation
+                    state = .awaitingNetworkFallback(text: text)
+                }
+                return useLocal ? await FoundationModelFormatter.enhance(text) : text
             }
 
             // Scan cleaned text for redactable positions; scan raw transcript for detection

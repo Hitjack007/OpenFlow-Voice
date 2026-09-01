@@ -89,6 +89,9 @@ final class HUDPanel: NSPanel {
         case .awaitingRetry:
             isInteractive = true
             targetSize = Self.retrySize
+        case .awaitingNetworkFallback:
+            isInteractive = true
+            targetSize = Self.enhancementSize
         default:
             isInteractive = false
             targetSize = Self.pillSize
