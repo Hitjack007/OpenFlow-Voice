@@ -21,6 +21,8 @@ final class HotkeyMonitor: @unchecked Sendable {
     private var shouldConsumeEvent = false
     private var lastPressAt: Date?
     private var lastReleaseAt: Date?
+    /// True when the current key-down was dirtied by a simultaneous modifier; cleared on key-up.
+    private var suppressedByCombo = false
 
     /// Installs the event tap for `key`. Returns `true` on success; `false` means Accessibility
     /// has not been granted to this process yet.
@@ -68,6 +70,7 @@ final class HotkeyMonitor: @unchecked Sendable {
         tap = nil
         runLoopSource = nil
         isPressed = false
+        suppressedByCombo = false
         lastPressAt = nil
         lastReleaseAt = nil
     }
@@ -88,32 +91,74 @@ final class HotkeyMonitor: @unchecked Sendable {
         }
 
         let nowPressed = flags.rawValue & currentFlag != 0
-        guard nowPressed != isPressed else { return false }
-        isPressed = nowPressed
 
+        // ── Key released ──────────────────────────────────────────────────────
+        if !nowPressed {
+            suppressedByCombo = false   // reset for next press
+            guard isPressed else { return false }
+            isPressed = false
+            lastReleaseAt = Date()
+            DispatchQueue.main.async { [weak self] in self?.onRelease?() }
+            return shouldConsumeEvent
+        }
+
+        // ── Key is down (or another modifier changed while our key is held) ───
+        // Ignore all flag changes while we're in a combo-suppressed state.
+        if suppressedByCombo { return false }
+
+        if isPressed {
+            // Already recording — if a new modifier was added, cancel cleanly.
+            if hasOtherModifiers(flags) {
+                suppressedByCombo = true
+                isPressed = false
+                lastReleaseAt = Date()
+                DispatchQueue.main.async { [weak self] in self?.onRelease?() }
+            }
+            return false
+        }
+
+        // ── Fresh press ───────────────────────────────────────────────────────
+        // Only activate when our key is the sole modifier held down.
+        if hasOtherModifiers(flags) {
+            suppressedByCombo = true
+            return false
+        }
+
+        isPressed = true
         let now = Date()
-        if nowPressed {
-            let isDoubleTap: Bool
-            if let lastPressAt, let lastReleaseAt {
-                let prevHoldDuration = lastReleaseAt.timeIntervalSince(lastPressAt)
-                let interTapGap = now.timeIntervalSince(lastReleaseAt)
-                isDoubleTap = prevHoldDuration < 0.25 && interTapGap < 0.35
-            } else {
-                isDoubleTap = false
-            }
-            lastPressAt = now
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if isDoubleTap { self.onDoubleTap?() } else { self.onPress?() }
-            }
+        let isDoubleTap: Bool
+        if let lastPressAt, let lastReleaseAt {
+            let prevHoldDuration = lastReleaseAt.timeIntervalSince(lastPressAt)
+            let interTapGap = now.timeIntervalSince(lastReleaseAt)
+            isDoubleTap = prevHoldDuration < 0.25 && interTapGap < 0.35
         } else {
-            lastReleaseAt = now
-            DispatchQueue.main.async { [weak self] in
-                self?.onRelease?()
-            }
+            isDoubleTap = false
+        }
+        lastPressAt = now
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if isDoubleTap { self.onDoubleTap?() } else { self.onPress?() }
         }
 
         return shouldConsumeEvent
+    }
+
+    /// Returns true if any modifier *other than* our target is currently held.
+    private func hasOtherModifiers(_ flags: CGEventFlags) -> Bool {
+        // Map our device-specific flag to its corresponding union flag so we
+        // can exclude it from the "other modifiers" check.
+        let ourUnion: UInt64
+        switch currentFlag {
+        case 0x20, 0x40: ourUnion = CGEventFlags.maskAlternate.rawValue     // option keys
+        case 0x08, 0x10: ourUnion = CGEventFlags.maskCommand.rawValue       // command keys
+        default:         ourUnion = CGEventFlags.maskSecondaryFn.rawValue   // fn
+        }
+        let otherMask = CGEventFlags.maskCommand.rawValue
+            | CGEventFlags.maskShift.rawValue
+            | CGEventFlags.maskAlternate.rawValue
+            | CGEventFlags.maskControl.rawValue
+            | CGEventFlags.maskSecondaryFn.rawValue
+        return flags.rawValue & (otherMask & ~ourUnion) != 0
     }
 }
 
