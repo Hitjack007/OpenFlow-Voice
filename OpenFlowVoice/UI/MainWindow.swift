@@ -459,6 +459,7 @@ private struct InlineGeneralSettings: View {
         case .awaitingEnhancement:   "Confirm enhancement…"
         case .enhancing:             "Enhancing…"
         case .awaitingRetry:         "Enhancement failed"
+        case .awaitingNetworkFallback: "No network connection"
         case .noTarget:              "Hold \(settings.pushToTalkKey.displayName) or tap"
         case .error(let msg):        msg
         }
